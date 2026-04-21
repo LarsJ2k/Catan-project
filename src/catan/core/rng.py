@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 
-# Simple deterministic PRNG for MVP (LCG, Numerical Recipes constants).
-# Kept isolated so it can be replaced later with a stronger generator.
-_LCG_A = 1664525
-_LCG_C = 1013904223
-_LCG_M = 2**32
-
-
+# Deterministic XorShift32-based PRNG for repeatable simulations.
 def next_u32(state: int) -> tuple[int, int]:
-    next_state = (_LCG_A * state + _LCG_C) % _LCG_M
-    return next_state, next_state
+    x = state & 0xFFFFFFFF
+    if x == 0:
+        x = 0x6D2B79F5  # avoid zero-lock state
+    x ^= (x << 13) & 0xFFFFFFFF
+    x ^= (x >> 17) & 0xFFFFFFFF
+    x ^= (x << 5) & 0xFFFFFFFF
+    return x, x
 
 
 def roll_two_d6(state: int) -> tuple[tuple[int, int], int]:
