@@ -7,7 +7,7 @@ from catan.core.engine import get_legal_actions
 from catan.core.models.state import GameState
 from catan.runners.local_pygame_runner import LocalPygameRunner
 
-from .input_mapper import PygameInputMapper
+from .input_mapper import HoverTarget, PygameInputMapper
 from .layout import build_circular_layout
 from .renderer import PygameRenderer
 
@@ -28,20 +28,32 @@ class PygameApp:
         screen = self.pg.display.set_mode((self.width, self.height))
         clock = self.pg.time.Clock()
 
-        # IMPORTANT: renderer/input mapper must be created after pygame init (fonts rely on initialized pygame/font modules).
         renderer = PygameRenderer(self.pg)
         input_mapper = PygameInputMapper(self.pg)
 
         state = initial_state
-        layout = build_circular_layout(state.board, center=(340, 340), radius=260)
-        event_log = ["game started"]
+        layout = build_circular_layout(state.board, center=(340, 360), radius=260)
+        event_log = ["[000] game started"]
         selected_action_text: str | None = None
+        last_applied_action: str | None = None
+        action_counter = 0
 
         running = True
         while running:
             active_player = self._active_player(state)
             legal = get_legal_actions(state, active_player) if active_player is not None else []
-            drawn = renderer.render(screen, state, layout, legal, active_player, event_log, selected_action_text)
+            hover = input_mapper.get_hover_target(self.pg.mouse.get_pos(), layout) if hasattr(self.pg, "mouse") else HoverTarget()
+            drawn = renderer.render(
+                screen,
+                state,
+                layout,
+                legal,
+                active_player,
+                event_log,
+                selected_action_text,
+                hover,
+                last_applied_action,
+            )
 
             for event in self.pg.event.get():
                 if event.type == self.pg.QUIT:
@@ -62,13 +74,15 @@ class PygameApp:
                     selected_action_text = str(mapped.action)
                     controllers[active_player].submit_action_intent(mapped.action)
                     if mapped.status:
-                        event_log.append(f"P{active_player}: {mapped.status}")
+                        event_log.append(f"[{action_counter:03d}] P{active_player} {mapped.status}")
 
             if active_player is not None and active_player in controllers:
                 before = state
                 state = self.runner.tick(state, controllers[active_player], active_player)
                 if state != before:
-                    event_log.append(f"applied: {selected_action_text or 'action'}")
+                    action_counter += 1
+                    last_applied_action = selected_action_text or "action"
+                    event_log.append(f"[{action_counter:03d}] applied {last_applied_action}")
                     selected_action_text = None
 
             self.pg.display.flip()

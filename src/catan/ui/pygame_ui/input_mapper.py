@@ -14,6 +14,12 @@ class InputResult:
     status: str | None = None
 
 
+@dataclass(frozen=True)
+class HoverTarget:
+    node_id: int | None = None
+    edge_id: int | None = None
+
+
 class PygameInputMapper:
     def __init__(self, pygame_module) -> None:
         self.pg = pygame_module
@@ -35,8 +41,8 @@ class PygameInputMapper:
         if end_rect.collidepoint(mouse):
             return InputResult(action=self._find_singleton(legal, EndTurn), status="clicked End")
 
-        node_id = self._nearest_node(mouse, layout)
-        edge_id = self._nearest_edge(mouse, layout)
+        node_id = self._nearest_node(mouse, layout, radius=22)
+        edge_id = self._nearest_edge(mouse, layout, radius=18)
 
         if node_id is not None:
             action = self._find_node_action(legal, node_id)
@@ -49,6 +55,12 @@ class PygameInputMapper:
                 return InputResult(action=action, status=f"clicked edge {edge_id}")
 
         return InputResult(action=None)
+
+    def get_hover_target(self, mouse_pos: tuple[int, int], layout: BoardLayout) -> HoverTarget:
+        return HoverTarget(
+            node_id=self._nearest_node(mouse_pos, layout, radius=24),
+            edge_id=self._nearest_edge(mouse_pos, layout, radius=20),
+        )
 
     def _find_singleton(self, legal: list[object], action_type: type) -> object | None:
         for action in legal:

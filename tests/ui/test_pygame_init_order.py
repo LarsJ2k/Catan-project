@@ -57,10 +57,16 @@ class FakePygame:
                     return [type("Evt", (), {"type": FakePygame.QUIT})()]
                 return []
 
+        class _Mouse:
+            @staticmethod
+            def get_pos() -> tuple[int, int]:
+                return (0, 0)
+
         self.font = _Font(self)
         self.display = _Display()
         self.time = _Time()
         self.event = _Event()
+        self.mouse = _Mouse()
 
     def init(self) -> None:
         self.inited = True
@@ -91,6 +97,13 @@ class StubInputMapper:
     class _Mapped:
         action = None
         status = None
+
+    class _Hover:
+        node_id = None
+        edge_id = None
+
+    def get_hover_target(self, *args, **kwargs):
+        return self._Hover()
 
     def map_event(self, *args, **kwargs):
         return self._Mapped()
