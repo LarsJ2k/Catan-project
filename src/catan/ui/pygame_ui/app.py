@@ -17,15 +17,20 @@ class PygameApp:
         self.pg = pygame_module
         self.width = width
         self.height = height
-        self.renderer = PygameRenderer(pygame_module)
-        self.input_mapper = PygameInputMapper(pygame_module)
         self.runner = LocalPygameRunner()
 
     def run(self, initial_state: GameState, controllers: Mapping[int, HumanController]) -> GameState:
         self.pg.init()
+        if hasattr(self.pg, "font"):
+            self.pg.font.init()
+
         self.pg.display.set_caption("Catan MVP (Debug UI)")
         screen = self.pg.display.set_mode((self.width, self.height))
         clock = self.pg.time.Clock()
+
+        # IMPORTANT: renderer/input mapper must be created after pygame init (fonts rely on initialized pygame/font modules).
+        renderer = PygameRenderer(self.pg)
+        input_mapper = PygameInputMapper(self.pg)
 
         state = initial_state
         layout = build_circular_layout(state.board, center=(340, 340), radius=260)
@@ -36,7 +41,7 @@ class PygameApp:
         while running:
             active_player = self._active_player(state)
             legal = get_legal_actions(state, active_player) if active_player is not None else []
-            drawn = self.renderer.render(screen, state, layout, legal, active_player, event_log, selected_action_text)
+            drawn = renderer.render(screen, state, layout, legal, active_player, event_log, selected_action_text)
 
             for event in self.pg.event.get():
                 if event.type == self.pg.QUIT:
@@ -46,7 +51,7 @@ class PygameApp:
                 if active_player is None or active_player not in controllers:
                     continue
 
-                mapped = self.input_mapper.map_event(
+                mapped = input_mapper.map_event(
                     event,
                     legal_actions=legal,
                     layout=layout,
