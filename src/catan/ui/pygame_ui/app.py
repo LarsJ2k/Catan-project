@@ -310,7 +310,7 @@ class PygameApp:
     def _board_center_and_radius(self, screen) -> tuple[tuple[int, int], int]:
         width, height = screen.get_size()
         panel_width = max(int(width * 0.30), 360)
-        bottom_bar_height = max(int(height * 0.22), 160)
+        bottom_bar_height = max(int(height * 0.18), 130)
         board_width = max(width - panel_width - 40, 200)
         board_height = max(height - bottom_bar_height - 90, 200)
         center = (20 + board_width // 2, 70 + board_height // 2)
