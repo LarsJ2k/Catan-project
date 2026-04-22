@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .enums import TerrainType
@@ -16,6 +16,7 @@ class Tile:
     id: TileId
     terrain: TerrainType
     number_token: Optional[int]
+    axial: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,9 @@ class Board:
     node_to_adjacent_tiles: dict[NodeId, tuple[TileId, ...]]
     node_to_adjacent_edges: dict[NodeId, tuple[EdgeId, ...]]
     edge_to_adjacent_nodes: dict[EdgeId, tuple[NodeId, NodeId]]
+    tile_to_nodes: dict[TileId, tuple[NodeId, ...]] = field(default_factory=dict)
+    node_positions: dict[NodeId, tuple[float, float]] = field(default_factory=dict)
+    tile_centers: dict[TileId, tuple[float, float]] = field(default_factory=dict)
 
     def node_neighbors(self, node_id: NodeId) -> tuple[NodeId, ...]:
         neighbors: list[NodeId] = []

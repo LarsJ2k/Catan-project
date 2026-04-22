@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, PlaceSetupRoad, PlaceSetupSettlement, RollDice
+from catan.core.models.enums import TerrainType
 from catan.core.models.state import GameState
 
 from .input_mapper import HoverTarget
@@ -57,6 +58,7 @@ class PygameRenderer:
 
         self.pg.draw.rect(screen, (28, 28, 32), (0, 0, 1000, 720))
         self._draw_phase_banner(screen, state)
+        self._draw_tiles(screen, state, layout)
         self._draw_board(screen, state, layout, legal_nodes, legal_edges, hover_target)
         roll_rect, end_rect = self._draw_side_panel(
             screen,
@@ -78,6 +80,26 @@ class PygameRenderer:
         self.pg.draw.rect(screen, color, (20, 20, 650, 28), border_radius=6)
         screen.blit(self.font.render(label, True, (255, 255, 255)), (30, 25))
 
+    def _draw_tiles(self, screen, state: GameState, layout: BoardLayout) -> None:
+        if not layout.tile_polygons:
+            return
+        for tile in state.board.tiles:
+            polygon = layout.tile_polygons.get(tile.id)
+            label_pos = layout.tile_label_positions.get(tile.id)
+            if polygon is None or label_pos is None:
+                continue
+
+            color = self._terrain_color(tile.terrain)
+            self.pg.draw.polygon(screen, color, polygon)
+            self.pg.draw.polygon(screen, (50, 50, 50), polygon, width=2)
+
+            resource_label = tile.terrain.name[:3]
+            number_label = str(tile.number_token) if tile.number_token is not None else "-"
+            center_x, center_y = label_pos
+            screen.blit(self.small_font.render(resource_label, True, (20, 20, 20)), (center_x - 14, center_y - 14))
+            screen.blit(self.font.render(number_label, True, (20, 20, 20)), (center_x - 10, center_y + 2))
+            screen.blit(self.small_font.render(f"#{tile.id}", True, (60, 60, 60)), (center_x - 10, center_y + 24))
+
     def _draw_board(
         self,
         screen,
@@ -92,35 +114,31 @@ class PygameRenderer:
             bx, by = layout.node_positions[edge.node_b]
             owner = state.placed.roads.get(edge.id)
             color = (95, 95, 95) if owner is None else self._player_color(owner)
-            width = 4 if owner is None else 8
+            width = 3 if owner is None else 7
 
             if edge.id in legal_edges:
                 color = (240, 235, 90)
-                width = 10
+                width = 9
             if hover_target.edge_id == edge.id:
                 color = (255, 255, 170)
-                width = max(width, 12)
+                width = max(width, 11)
 
             self.pg.draw.line(screen, color, (ax, ay), (bx, by), width)
-            mx, my = layout.edge_midpoints[edge.id]
-            screen.blit(self.small_font.render(str(edge.id), True, (180, 180, 180)), (mx + 4, my + 2))
 
         for node_id, (x, y) in layout.node_positions.items():
             if node_id in state.placed.cities:
                 owner = state.placed.cities[node_id]
-                self.pg.draw.rect(screen, self._player_color(owner), (x - 13, y - 13, 26, 26))
+                self.pg.draw.rect(screen, self._player_color(owner), (x - 12, y - 12, 24, 24))
             elif node_id in state.placed.settlements:
                 owner = state.placed.settlements[node_id]
-                self.pg.draw.circle(screen, self._player_color(owner), (x, y), 12)
+                self.pg.draw.circle(screen, self._player_color(owner), (x, y), 11)
             else:
-                self.pg.draw.circle(screen, (200, 200, 200), (x, y), 11, width=2)
+                self.pg.draw.circle(screen, (210, 210, 210), (x, y), 9, width=2)
 
             if node_id in legal_nodes:
-                self.pg.draw.circle(screen, (250, 240, 80), (x, y), 17, width=3)
+                self.pg.draw.circle(screen, (250, 240, 80), (x, y), 15, width=3)
             if hover_target.node_id == node_id:
-                self.pg.draw.circle(screen, (255, 255, 170), (x, y), 21, width=3)
-
-            screen.blit(self.small_font.render(str(node_id), True, (220, 220, 220)), (x + 10, y - 10))
+                self.pg.draw.circle(screen, (255, 255, 170), (x, y), 19, width=3)
 
     def _draw_side_panel(
         self,
@@ -141,13 +159,12 @@ class PygameRenderer:
         step = state.turn.step.name if state.turn else "SETUP"
         dice = state.turn.last_roll if state.turn else None
         y = 12
-        header_lines = [
+        for text in [
             f"Phase: {phase}",
             f"Step: {step}",
             f"Active: P{active_player}" if active_player is not None else "Active: -",
             f"Last Roll: {dice}",
-        ]
-        for text in header_lines:
+        ]:
             screen.blit(self.font.render(text, True, (238, 238, 238)), (panel_x + 10, y))
             y += 24
 
@@ -161,8 +178,6 @@ class PygameRenderer:
             y += 18
             screen.blit(self.small_font.render(f"Resources: {resources}", True, (220, 220, 220)), (panel_x + 10, y))
             y += 18
-        else:
-            y += 36
 
         y += 8
         roll_rect = self.pg.Rect(panel_x + 10, y, 130, 34)
@@ -213,3 +228,14 @@ class PygameRenderer:
             4: (235, 195, 86),
         }
         return palette.get(player_id, (210, 210, 210))
+
+    def _terrain_color(self, terrain: TerrainType) -> tuple[int, int, int]:
+        colors = {
+            TerrainType.FOREST: (104, 165, 90),
+            TerrainType.HILLS: (197, 129, 96),
+            TerrainType.PASTURE: (170, 207, 117),
+            TerrainType.FIELDS: (218, 205, 120),
+            TerrainType.MOUNTAINS: (160, 160, 160),
+            TerrainType.DESERT: (226, 209, 162),
+        }
+        return colors.get(terrain, (200, 200, 200))
