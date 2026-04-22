@@ -237,7 +237,8 @@ def _legal_bank_trades(state: GameState, player_id: PlayerId) -> list[BankTrade]
     player = state.players[player_id]
     actions: list[BankTrade] = []
     for offer_resource, amount in player.resources.items():
-        if amount < BANK_TRADE_RATE:
+        trade_rate, via_port_resource = _best_trade_rate_for_offer(state, player_id, offer_resource)
+        if amount < trade_rate:
             continue
         for request_resource in ResourceType:
             if request_resource == offer_resource:
@@ -247,6 +248,8 @@ def _legal_bank_trades(state: GameState, player_id: PlayerId) -> list[BankTrade]
                     player_id=player_id,
                     offer_resource=offer_resource,
                     request_resource=request_resource,
+                    trade_rate=trade_rate,
+                    via_port_resource=via_port_resource,
                 )
             )
     return actions
@@ -467,9 +470,39 @@ def _apply_build_city(state: GameState, action: BuildCity) -> GameState:
 def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
     player = state.players[action.player_id]
     resources = dict(player.resources)
-    resources[action.offer_resource] -= BANK_TRADE_RATE
+    resources[action.offer_resource] -= action.trade_rate
     resources[action.request_resource] += 1
     return replace(state, players={**state.players, action.player_id: replace(player, resources=resources)})
+
+
+def _best_trade_rate_for_offer(
+    state: GameState, player_id: PlayerId, offer_resource: ResourceType
+) -> tuple[int, ResourceType | None]:
+    accessible_ports = _accessible_ports(state, player_id)
+    has_generic = any(port.trade_resource is None for port in accessible_ports)
+    has_specific = any(port.trade_resource == offer_resource for port in accessible_ports)
+    if has_specific:
+        return 2, offer_resource
+    if has_generic:
+        return 3, None
+    return BANK_TRADE_RATE, None
+
+
+def _accessible_ports(state: GameState, player_id: PlayerId):
+    owned_nodes = {
+        node_id
+        for node_id, owner in state.placed.settlements.items()
+        if owner == player_id
+    }
+    owned_nodes.update(
+        node_id
+        for node_id, owner in state.placed.cities.items()
+        if owner == player_id
+    )
+    port_ids: set[int] = set()
+    for node_id in owned_nodes:
+        port_ids.update(state.board.node_to_ports.get(node_id, ()))
+    return [state.board.ports[port_id] for port_id in sorted(port_ids)]
 
 
 def _apply_end_turn(state: GameState) -> GameState:

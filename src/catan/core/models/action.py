@@ -65,6 +65,8 @@ class BuildCity(ActionBase):
 class BankTrade(ActionBase):
     offer_resource: ResourceType
     request_resource: ResourceType
+    trade_rate: int = 4
+    via_port_resource: ResourceType | None = None
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from catan.core.models.board import Board, Edge, Tile
+from catan.core.models.board import Board, Edge, Port, Tile
 from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
 from catan.ui.pygame_ui.app import PygameApp
@@ -20,6 +20,8 @@ def make_state() -> GameState:
         node_to_adjacent_tiles={0: (0,), 1: (0,)},
         node_to_adjacent_edges={0: (0,), 1: (0,)},
         edge_to_adjacent_nodes={0: (0, 1)},
+        ports=(Port(id=0, edge_id=0, node_ids=(0, 1), trade_resource=ResourceType.ORE),),
+        node_to_ports={0: (0,), 1: (0,)},
     )
     players = {
         1: PlayerState(player_id=1, resources={r: 0 for r in ResourceType}),
@@ -111,3 +113,33 @@ def test_describe_transition_logs_bank_trade() -> None:
 
     lines = app._describe_transition(before, after, "BankTrade(player_id=1, ...)")
     assert "P1 traded 4 Brick for 1 Wheat" in lines
+
+
+def test_describe_transition_logs_port_trade_rate_and_source() -> None:
+    app = PygameApp(DummyPygame())
+    before = make_state()
+    before = replace(
+        before,
+        turn=replace(before.turn, step=TurnStep.ACTIONS),
+        players={
+            1: replace(before.players[1], resources={**before.players[1].resources, ResourceType.ORE: 2}),
+            2: replace(before.players[2], resources={**before.players[2].resources}),
+        },
+    )
+    after = replace(
+        before,
+        players={
+            1: replace(
+                before.players[1],
+                resources={
+                    **before.players[1].resources,
+                    ResourceType.ORE: 0,
+                    ResourceType.GRAIN: 1,
+                },
+            ),
+            2: replace(before.players[2], resources={**before.players[2].resources}),
+        },
+    )
+
+    lines = app._describe_transition(before, after, "BankTrade(player_id=1, ...)")
+    assert "P1 traded 2 Ore for 1 Wheat via Ore port" in lines
