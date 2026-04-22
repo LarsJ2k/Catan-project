@@ -70,6 +70,32 @@ class BankTrade(ActionBase):
 
 
 @dataclass(frozen=True)
+class ProposePlayerTrade(ActionBase):
+    offered_resources: tuple[tuple[ResourceType, int], ...]
+    requested_resources: tuple[tuple[ResourceType, int], ...]
+
+
+@dataclass(frozen=True)
+class RespondToTradeInterested(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
+class RespondToTradePass(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
+class ChooseTradePartner(ActionBase):
+    partner_player_id: PlayerId
+
+
+@dataclass(frozen=True)
+class RejectTradeResponses(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
 class EndTurn(ActionBase):
     pass
 
@@ -86,5 +112,10 @@ Action = (
     | BuildSettlement
     | BuildCity
     | BankTrade
+    | ProposePlayerTrade
+    | RespondToTradeInterested
+    | RespondToTradePass
+    | ChooseTradePartner
+    | RejectTradeResponses
     | EndTurn
 )
