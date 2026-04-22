@@ -4,7 +4,7 @@ from typing import Mapping
 
 from catan.controllers.human_controller import HumanController
 from catan.core.engine import get_legal_actions
-from catan.core.models.action import BankTrade, DiscardResources
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, DiscardResources, EndTurn, RollDice
 from catan.core.models.enums import ResourceType, TurnStep
 from catan.core.models.state import GameState
 from catan.runners.local_pygame_runner import LocalPygameRunner
@@ -42,6 +42,11 @@ class PygameApp:
         discard_selection: dict[ResourceType, int] = {r: 0 for r in ResourceType}
         bank_trade_offer: ResourceType | None = None
         bank_trade_request: ResourceType | None = None
+        event_log_offset = 0
+        build_mode: str | None = None
+        trade_draft_offered = {r: 0 for r in ResourceType}
+        trade_draft_requested = {r: 0 for r in ResourceType}
+        trade_window_open = False
 
         running = True
         while running:
@@ -55,12 +60,18 @@ class PygameApp:
             if state.turn and state.turn.step == TurnStep.DISCARD and active_player is not None:
                 required = state.discard_requirements.get(active_player, 0)
                 selected_action_text = f"Discard {required}: " + ", ".join(f"{r.name}:{n}" for r, n in discard_selection.items() if n > 0)
-            elif state.turn and state.turn.step == TurnStep.ACTIONS:
-                offer = self._resource_name(bank_trade_offer) if bank_trade_offer is not None else "-"
-                request = self._resource_name(bank_trade_request) if bank_trade_request is not None else "-"
-                rate_text = self._selected_trade_rate_text(legal, bank_trade_offer)
-                selected_action_text = f"Bank trade offer={offer}, request={request}, rate={rate_text} (1-5 offer, Z-B request, Enter submit)"
+            elif state.turn and state.turn.step == TurnStep.ACTIONS and trade_window_open:
+                selected_action_text = self._trade_draft_status_text(trade_draft_offered, trade_draft_requested, legal, active_player)
 
+            trade_ui = None
+            if trade_window_open:
+                trade_ui = {
+                    "offer": trade_draft_offered,
+                    "request": trade_draft_requested,
+                    "valid_bank_trade": self._is_valid_bank_trade_draft(legal, active_player, trade_draft_offered, trade_draft_requested),
+                    "offer_rects": {},
+                    "request_rects": {},
+                }
             drawn = renderer.render(
                 screen,
                 state,
@@ -72,6 +83,9 @@ class PygameApp:
                 hover,
                 last_applied_action,
                 self.fullscreen,
+                build_mode=build_mode,
+                trade_ui=trade_ui,
+                event_log_offset=event_log_offset,
             )
 
             for event in self.pg.event.get():
@@ -87,9 +101,70 @@ class PygameApp:
                     self.width, self.height = event.w, event.h
                     screen = self._create_display_surface()
                     continue
+                if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 4:
+                    event_log_offset += 1
+                    continue
+                if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 5:
+                    event_log_offset = max(event_log_offset - 1, 0)
+                    continue
 
                 if active_player is None or active_player not in controllers:
                     continue
+
+                if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                    if drawn.event_log_scroll_up_rect is not None and drawn.event_log_scroll_up_rect.collidepoint(event.pos):
+                        event_log_offset += 1
+                        continue
+                    if drawn.event_log_scroll_down_rect is not None and drawn.event_log_scroll_down_rect.collidepoint(event.pos):
+                        event_log_offset = max(event_log_offset - 1, 0)
+                        continue
+                    clicked_action = self._handle_action_button_click(
+                        event.pos,
+                        drawn.action_button_rects,
+                        legal,
+                        state,
+                        active_player,
+                        build_mode,
+                        trade_window_open,
+                    )
+                    if clicked_action is not None:
+                        if isinstance(clicked_action, str):
+                            if clicked_action.startswith("mode:"):
+                                build_mode = clicked_action.split(":")[1]
+                                trade_window_open = False
+                            elif clicked_action == "clear_mode":
+                                build_mode = None
+                            elif clicked_action == "trade_open":
+                                trade_window_open = True
+                                build_mode = None
+                            elif clicked_action == "trade_cancel":
+                                trade_window_open = False
+                                trade_draft_offered = {r: 0 for r in ResourceType}
+                                trade_draft_requested = {r: 0 for r in ResourceType}
+                                selected_action_text = "Trade draft cancelled"
+                            elif clicked_action == "dev_placeholder":
+                                event_log.append(f"[{action_counter:03d}] Dev cards not implemented yet")
+                            continue
+                        selected_action_text = str(clicked_action)
+                        controllers[active_player].submit_action_intent(clicked_action)
+                        continue
+                    if trade_window_open and trade_ui is not None:
+                        trade_action = self._handle_trade_overlay_click(
+                            event.pos, trade_ui, legal, state, active_player, trade_draft_offered, trade_draft_requested
+                        )
+                        if trade_action is not None:
+                            if isinstance(trade_action, str):
+                                if trade_action == "cancel":
+                                    trade_window_open = False
+                                    trade_draft_offered = {r: 0 for r in ResourceType}
+                                    trade_draft_requested = {r: 0 for r in ResourceType}
+                                continue
+                            selected_action_text = str(trade_action)
+                            controllers[active_player].submit_action_intent(trade_action)
+                            trade_window_open = False
+                            trade_draft_offered = {r: 0 for r in ResourceType}
+                            trade_draft_requested = {r: 0 for r in ResourceType}
+                            continue
 
                 if state.turn and state.turn.step == TurnStep.DISCARD:
                     discard_action = self._handle_discard_event(event, state, active_player, discard_selection)
@@ -119,8 +194,12 @@ class PygameApp:
                     state=state,
                 )
                 if mapped.action is not None:
+                    if not self._is_board_action_allowed(mapped.action, build_mode):
+                        continue
                     selected_action_text = str(mapped.action)
                     controllers[active_player].submit_action_intent(mapped.action)
+                    if isinstance(mapped.action, (BuildRoad, BuildSettlement, BuildCity)):
+                        build_mode = None
                     if mapped.status:
                         event_log.append(f"[{action_counter:03d}] P{active_player} {mapped.status}")
 
@@ -138,6 +217,11 @@ class PygameApp:
                     if state.turn is None or state.turn.step != TurnStep.ACTIONS:
                         bank_trade_offer = None
                         bank_trade_request = None
+                        build_mode = None
+                        trade_window_open = False
+                        trade_draft_offered = {r: 0 for r in ResourceType}
+                        trade_draft_requested = {r: 0 for r in ResourceType}
+                    event_log_offset = 0
 
             self.pg.display.flip()
             clock.tick(30)
@@ -225,12 +309,124 @@ class PygameApp:
 
     def _board_center_and_radius(self, screen) -> tuple[tuple[int, int], int]:
         width, height = screen.get_size()
-        panel_width = 320
+        panel_width = max(int(width * 0.30), 360)
+        bottom_bar_height = max(int(height * 0.22), 160)
         board_width = max(width - panel_width - 40, 200)
-        board_height = max(height - 80, 200)
+        board_height = max(height - bottom_bar_height - 90, 200)
         center = (20 + board_width // 2, 70 + board_height // 2)
         radius = int(min(board_width, board_height) * 0.42)
         return center, max(radius, 120)
+
+    def _is_board_action_allowed(self, action: object, build_mode: str | None) -> bool:
+        if isinstance(action, BuildRoad):
+            return build_mode == "road"
+        if isinstance(action, BuildSettlement):
+            return build_mode == "settlement"
+        if isinstance(action, BuildCity):
+            return build_mode == "city"
+        return True
+
+    def _handle_action_button_click(
+        self,
+        pos: tuple[int, int],
+        button_rects: dict[str, object],
+        legal_actions: list[object],
+        state: GameState,
+        active_player: int,
+        build_mode: str | None,
+        trade_window_open: bool,
+    ) -> object | str | None:
+        if button_rects.get("trade") and button_rects["trade"].collidepoint(pos):
+            if any(isinstance(a, BankTrade) for a in legal_actions):
+                return "trade_open"
+        if button_rects.get("dev") and button_rects["dev"].collidepoint(pos):
+            if self._can_afford_cost(state, active_player, {ResourceType.ORE: 1, ResourceType.GRAIN: 1, ResourceType.WOOL: 1}):
+                return "dev_placeholder"
+        if button_rects.get("road") and button_rects["road"].collidepoint(pos):
+            return "mode:road" if any(isinstance(a, BuildRoad) for a in legal_actions) else None
+        if button_rects.get("settlement") and button_rects["settlement"].collidepoint(pos):
+            return "mode:settlement" if any(isinstance(a, BuildSettlement) for a in legal_actions) else None
+        if button_rects.get("city") and button_rects["city"].collidepoint(pos):
+            return "mode:city" if any(isinstance(a, BuildCity) for a in legal_actions) else None
+        if button_rects.get("primary") and button_rects["primary"].collidepoint(pos):
+            roll = next((a for a in legal_actions if isinstance(a, RollDice)), None)
+            if roll is not None:
+                return roll
+            end = next((a for a in legal_actions if isinstance(a, EndTurn)), None)
+            if end is not None:
+                return end
+        if trade_window_open and button_rects.get("trade_cancel") and button_rects["trade_cancel"].collidepoint(pos):
+            return "trade_cancel"
+        if build_mode is not None:
+            return "clear_mode"
+        return None
+
+    def _handle_trade_overlay_click(
+        self,
+        pos: tuple[int, int],
+        trade_ui: dict[str, object],
+        legal_actions: list[object],
+        state: GameState,
+        active_player: int,
+        offered: dict[ResourceType, int],
+        requested: dict[ResourceType, int],
+    ) -> BankTrade | str | None:
+        for resource, rect in trade_ui["request_rects"].items():
+            if rect.collidepoint(pos):
+                for r in ResourceType:
+                    requested[r] = 0
+                requested[resource] = 1
+                return None
+        for resource, rect in trade_ui["offer_rects"].items():
+            if rect.collidepoint(pos):
+                max_offer = state.players[active_player].resources.get(resource, 0)
+                if offered[resource] < max_offer:
+                    offered[resource] += 1
+                return None
+        if trade_ui["cancel_button_rect"].collidepoint(pos):
+            return "cancel"
+        if trade_ui["bank_button_rect"].collidepoint(pos):
+            return self._to_bank_trade_action(legal_actions, active_player, offered, requested)
+        return None
+
+    def _to_bank_trade_action(
+        self, legal_actions: list[object], player_id: int, offered: dict[ResourceType, int], requested: dict[ResourceType, int]
+    ) -> BankTrade | None:
+        offered_items = [(r, n) for r, n in offered.items() if n > 0]
+        requested_items = [(r, n) for r, n in requested.items() if n > 0]
+        if len(offered_items) != 1 or len(requested_items) != 1:
+            return None
+        offer_resource, offer_count = offered_items[0]
+        request_resource, request_count = requested_items[0]
+        if request_count != 1:
+            return None
+        for action in legal_actions:
+            if (
+                isinstance(action, BankTrade)
+                and action.player_id == player_id
+                and action.offer_resource == offer_resource
+                and action.request_resource == request_resource
+                and action.trade_rate == offer_count
+            ):
+                return action
+        return None
+
+    def _is_valid_bank_trade_draft(
+        self, legal_actions: list[object], player_id: int, offered: dict[ResourceType, int], requested: dict[ResourceType, int]
+    ) -> bool:
+        return self._to_bank_trade_action(legal_actions, player_id, offered, requested) is not None
+
+    def _trade_draft_status_text(
+        self, offered: dict[ResourceType, int], requested: dict[ResourceType, int], legal_actions: list[object], player_id: int
+    ) -> str:
+        offer_txt = ", ".join(f"{self._resource_name(r)}:{n}" for r, n in offered.items() if n > 0) or "-"
+        req_txt = ", ".join(f"{self._resource_name(r)}:{n}" for r, n in requested.items() if n > 0) or "-"
+        valid = self._is_valid_bank_trade_draft(legal_actions, player_id, offered, requested)
+        return f"Trade draft offer=[{offer_txt}] request=[{req_txt}] bank_valid={'yes' if valid else 'no'}"
+
+    def _can_afford_cost(self, state: GameState, player_id: int, cost: dict[ResourceType, int]) -> bool:
+        resources = state.players[player_id].resources
+        return all(resources.get(resource, 0) >= need for resource, need in cost.items())
 
     def _describe_transition(self, before: GameState, after: GameState, action_text: str) -> list[str]:
         lines: list[str] = [f"applied {action_text}"]
