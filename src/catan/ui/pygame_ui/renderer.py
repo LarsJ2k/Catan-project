@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice
-from catan.core.models.enums import ResourceType, TerrainType
+from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice, StealResource
+from catan.core.models.enums import ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 
 from .input_mapper import HoverTarget
@@ -17,10 +17,11 @@ class DrawnUi:
     end_turn_button_rect: object
 
 
-def extract_legal_targets(legal_actions: Iterable[object]) -> tuple[set[int], set[int], set[int], bool, bool]:
+def extract_legal_targets(state: GameState, legal_actions: Iterable[object]) -> tuple[set[int], set[int], set[int], set[int], bool, bool]:
     legal_nodes: set[int] = set()
     legal_edges: set[int] = set()
     legal_tiles: set[int] = set()
+    steal_targets: set[int] = set()
     can_roll = False
     can_end = False
 
@@ -31,12 +32,22 @@ def extract_legal_targets(legal_actions: Iterable[object]) -> tuple[set[int], se
             legal_edges.add(action.edge_id)
         elif isinstance(action, MoveRobber):
             legal_tiles.add(action.tile_id)
+        elif isinstance(action, StealResource):
+            steal_targets.add(action.target_player_id)
         elif isinstance(action, RollDice):
             can_roll = True
         elif isinstance(action, EndTurn):
             can_end = True
 
-    return legal_nodes, legal_edges, legal_tiles, can_roll, can_end
+    steal_nodes: set[int] = set()
+    robber_tile_id = state.robber_tile_id
+    if robber_tile_id is not None and steal_targets:
+        for node_id in state.board.tile_to_nodes.get(robber_tile_id, ()):
+            owner = state.placed.cities.get(node_id) or state.placed.settlements.get(node_id)
+            if owner in steal_targets:
+                steal_nodes.add(node_id)
+
+    return legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end
 
 
 class PygameRenderer:
@@ -58,7 +69,7 @@ class PygameRenderer:
         last_applied_action: str | None,
         fullscreen: bool,
     ) -> DrawnUi:
-        legal_nodes, legal_edges, legal_tiles, can_roll, can_end = extract_legal_targets(legal_actions)
+        legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end = extract_legal_targets(state, legal_actions)
         width, height = screen.get_size()
         panel_width = 320
         panel_x = width - panel_width
@@ -66,7 +77,7 @@ class PygameRenderer:
         self.pg.draw.rect(screen, (28, 28, 32), (0, 0, width, height))
         self._draw_phase_banner(screen, state, width=width, panel_x=panel_x, fullscreen=fullscreen)
         self._draw_tiles(screen, state, layout, legal_tiles, hover_target.tile_id)
-        self._draw_board(screen, state, layout, legal_nodes, legal_edges, hover_target)
+        self._draw_board(screen, state, layout, legal_nodes, legal_edges, steal_nodes, hover_target)
         roll_rect, end_rect = self._draw_side_panel(
             screen,
             state,
@@ -117,9 +128,15 @@ class PygameRenderer:
             resource_label = self._terrain_name(tile.terrain)
             number_label = str(tile.number_token) if tile.number_token is not None else "-"
             center_x, center_y = label_pos
-            screen.blit(self.small_font.render(resource_label, True, (20, 20, 20)), (center_x - 28, center_y - 14))
-            screen.blit(self.font.render(number_label, True, (20, 20, 20)), (center_x - 8, center_y + 2))
+            has_robber = tile.id == state.robber_tile_id
+            resource_y = center_y - 14
+            number_y = center_y + (10 if has_robber else 2)
+            screen.blit(self.small_font.render(resource_label, True, (20, 20, 20)), (center_x - 28, resource_y))
+            screen.blit(self.font.render(number_label, True, (20, 20, 20)), (center_x - 8, number_y))
             screen.blit(self.small_font.render(f"#{tile.id}", True, (60, 60, 60)), (center_x - 10, center_y + 24))
+            if has_robber:
+                self.pg.draw.circle(screen, (240, 240, 240), (center_x, center_y), 18, width=2)
+                self.pg.draw.circle(screen, (10, 10, 10), (center_x, center_y), 14)
 
     def _draw_board(
         self,
@@ -128,6 +145,7 @@ class PygameRenderer:
         layout: BoardLayout,
         legal_nodes: set[int],
         legal_edges: set[int],
+        steal_nodes: set[int],
         hover_target: HoverTarget,
     ) -> None:
         for edge in state.board.edges:
@@ -158,6 +176,8 @@ class PygameRenderer:
 
             if node_id in legal_nodes:
                 self.pg.draw.circle(screen, (250, 240, 80), (x, y), 15, width=3)
+            if node_id in steal_nodes:
+                self.pg.draw.circle(screen, (255, 120, 120), (x, y), 17, width=4)
             if hover_target.node_id == node_id:
                 self.pg.draw.circle(screen, (255, 255, 170), (x, y), 19, width=3)
 
@@ -222,6 +242,10 @@ class PygameRenderer:
         y += 22
         for line in self._summarize_legal(legal_actions):
             screen.blit(self.small_font.render(line, True, (220, 220, 220)), (panel_x + 10, y))
+            y += 17
+        if state.turn and state.turn.step == TurnStep.ROBBER_STEAL:
+            y += 2
+            screen.blit(self.small_font.render("Select a victim settlement/city", True, (255, 160, 160)), (panel_x + 10, y))
             y += 17
 
         y += 6

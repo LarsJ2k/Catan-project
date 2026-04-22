@@ -97,6 +97,7 @@ class PygameApp:
                     layout=layout,
                     roll_rect=drawn.roll_button_rect,
                     end_rect=drawn.end_turn_button_rect,
+                    state=state,
                 )
                 if mapped.action is not None:
                     selected_action_text = str(mapped.action)
@@ -177,7 +178,10 @@ class PygameApp:
 
         if before.robber_tile_id != after.robber_tile_id:
             lines.append(f"Robber moved to tile {after.robber_tile_id}")
+            if after.turn and after.turn.step == TurnStep.ROBBER_STEAL:
+                lines.append("Select a victim to steal from")
 
+        steals: list[tuple[int, int, ResourceType]] = []
         for pid in sorted(after.players.keys()):
             for resource in [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]:
                 before_amount = before.players[pid].resources.get(resource, 0)
@@ -185,6 +189,15 @@ class PygameApp:
                 delta = after_amount - before_amount
                 if delta > 0:
                     lines.append(f"P{pid} received {delta} {self._resource_name(resource)}")
+                    if before.turn and before.turn.step in (TurnStep.ROBBER_MOVE, TurnStep.ROBBER_STEAL) and delta == 1:
+                        victims = [other for other in sorted(after.players.keys()) if other != pid and before.players[other].resources.get(resource, 0) - after.players[other].resources.get(resource, 0) == 1]
+                        if victims:
+                            steals.append((pid, victims[0], resource))
+
+        if before.turn and before.turn.step == TurnStep.ROBBER_MOVE and after.turn and after.turn.step == TurnStep.ACTIONS and before.robber_tile_id != after.robber_tile_id and not steals:
+            lines.append("No eligible victim to steal from")
+        for thief, victim, resource in steals:
+            lines.append(f"P{thief} stole 1 {self._resource_name(resource)} from P{victim}")
         return lines
 
     def _resource_name(self, resource: ResourceType) -> str:
