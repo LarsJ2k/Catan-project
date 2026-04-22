@@ -107,7 +107,7 @@ class PygameRenderer:
         )
         width, height = screen.get_size()
         panel_width = max(int(width * 0.30), 360)
-        bottom_bar_height = max(int(height * 0.22), 160)
+        bottom_bar_height = max(int(height * 0.18), 130)
         panel_x = width - panel_width
 
         self.pg.draw.rect(screen, (28, 28, 32), (0, 0, width, height))
@@ -297,15 +297,8 @@ class PygameRenderer:
             screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.right - 88, row.y + 4))
             y += 28
 
-        y += 6
-        roll_rect = self.pg.Rect(panel_x + 10, y, 145, 34)
-        end_rect = self.pg.Rect(panel_x + 165, y, 145, 34)
-        roll_color = (70, 95, 140) if can_roll else (55, 55, 60)
-        end_color = (95, 70, 140) if can_end else (55, 55, 60)
-        self.pg.draw.rect(screen, roll_color, roll_rect)
-        self.pg.draw.rect(screen, end_color, end_rect)
-        screen.blit(self.small_font.render("Roll [R]", True, (255, 255, 255)), (roll_rect.x + 35, roll_rect.y + 8))
-        screen.blit(self.small_font.render("End [E]", True, (255, 255, 255)), (end_rect.x + 40, end_rect.y + 8))
+        roll_rect = self.pg.Rect(0, 0, 0, 0)
+        end_rect = self.pg.Rect(0, 0, 0, 0)
         action_button_rects = {
             "trade": self.pg.Rect(0, 0, 0, 0),
             "dev": self.pg.Rect(0, 0, 0, 0),
@@ -326,22 +319,22 @@ class PygameRenderer:
             return
         player = state.players[active_player]
         start_x = 16
-        card_w = 82
-        card_h = 110
+        card_w = 78
+        card_h = 84
         gap = 10
         resources = [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]
         offered = trade_ui.get("offer", {}) if trade_ui else {}
         for idx, resource in enumerate(resources):
             x = start_x + idx * (card_w + gap)
             shown_amount = max(player.resources.get(resource, 0) - int(offered.get(resource, 0)), 0)
-            self._draw_resource_card(screen, x, bar_y + 36, card_w, card_h, resource, shown_amount)
+            self._draw_resource_card(screen, x, bar_y + 44, card_w, card_h, resource, shown_amount)
         labels = [("Trade", "trade"), ("Buy Dev Card", "dev"), ("Buy Road", "road"), ("Buy Settlement", "settlement"), ("Buy City", "city")]
         bx = start_x + 5 * (card_w + gap) + 18
-        by = bar_y + 18
-        bw = 138
-        bh = 34
+        by = bar_y + 10
+        bw = 112
+        bh = 30
         for idx, (label, key) in enumerate(labels):
-            rect = self.pg.Rect(bx, by + idx * (bh + 6), bw, bh)
+            rect = self.pg.Rect(bx + idx * (bw + 8), by, bw, bh)
             enabled = self._is_action_enabled(key, legal_actions, state, active_player)
             self.pg.draw.rect(screen, (78, 110, 95) if enabled else (70, 70, 72), rect, border_radius=5)
             screen.blit(self.small_font.render(label, True, (245, 245, 245)), (rect.x + 10, rect.y + 8))
@@ -350,9 +343,9 @@ class PygameRenderer:
         can_end = any(isinstance(a, EndTurn) for a in legal_actions)
         primary_label = primary_turn_button_state(can_roll=can_roll, can_end=can_end)
         primary_enabled = can_roll or can_end
-        p_rect = self.pg.Rect(bx + bw + 18, by + 2 * (bh + 6), 138, 42)
+        p_rect = self.pg.Rect(bx, by + bh + 10, 170, 34)
         self.pg.draw.rect(screen, (86, 112, 150) if primary_enabled else (72, 72, 74), p_rect, border_radius=6)
-        screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (p_rect.x + 28, p_rect.y + 12))
+        screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (p_rect.x + 18, p_rect.y + 9))
         action_button_rects["primary"] = p_rect
 
     def _draw_trade_overlay(self, screen, state: GameState, active_player: int | None, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
