@@ -69,8 +69,10 @@ class PygameApp:
                     "offer": trade_draft_offered,
                     "request": trade_draft_requested,
                     "valid_bank_trade": self._is_valid_bank_trade_draft(legal, active_player, trade_draft_offered, trade_draft_requested),
-                    "offer_rects": {},
+                    "bank_supply_rects": {},
                     "request_rects": {},
+                    "offer_rects": {},
+                    "hand_rects": {},
                 }
             drawn = renderer.render(
                 screen,
@@ -343,10 +345,16 @@ class PygameApp:
             if self._can_afford_cost(state, active_player, {ResourceType.ORE: 1, ResourceType.GRAIN: 1, ResourceType.WOOL: 1}):
                 return "dev_placeholder"
         if button_rects.get("road") and button_rects["road"].collidepoint(pos):
+            if build_mode == "road":
+                return "clear_mode"
             return "mode:road" if any(isinstance(a, BuildRoad) for a in legal_actions) else None
         if button_rects.get("settlement") and button_rects["settlement"].collidepoint(pos):
+            if build_mode == "settlement":
+                return "clear_mode"
             return "mode:settlement" if any(isinstance(a, BuildSettlement) for a in legal_actions) else None
         if button_rects.get("city") and button_rects["city"].collidepoint(pos):
+            if build_mode == "city":
+                return "clear_mode"
             return "mode:city" if any(isinstance(a, BuildCity) for a in legal_actions) else None
         if button_rects.get("primary") and button_rects["primary"].collidepoint(pos):
             roll = next((a for a in legal_actions if isinstance(a, RollDice)), None)
@@ -361,8 +369,6 @@ class PygameApp:
                 return roll
         if trade_window_open and button_rects.get("trade_cancel") and button_rects["trade_cancel"].collidepoint(pos):
             return "trade_cancel"
-        if build_mode is not None:
-            return "clear_mode"
         return None
 
     def _handle_trade_overlay_click(
@@ -375,17 +381,25 @@ class PygameApp:
         offered: dict[ResourceType, int],
         requested: dict[ResourceType, int],
     ) -> BankTrade | str | None:
+        for resource, rect in trade_ui["bank_supply_rects"].items():
+            if rect.collidepoint(pos):
+                requested[resource] += 1
+                return None
         for resource, rect in trade_ui["request_rects"].items():
             if rect.collidepoint(pos):
-                for r in ResourceType:
-                    requested[r] = 0
-                requested[resource] = 1
+                if requested[resource] > 0:
+                    requested[resource] -= 1
                 return None
-        for resource, rect in trade_ui["offer_rects"].items():
+        for resource, rect in trade_ui["hand_rects"].items():
             if rect.collidepoint(pos):
                 max_offer = state.players[active_player].resources.get(resource, 0)
                 if offered[resource] < max_offer:
                     offered[resource] += 1
+                return None
+        for resource, rect in trade_ui["offer_rects"].items():
+            if rect.collidepoint(pos):
+                if offered[resource] > 0:
+                    offered[resource] -= 1
                 return None
         if trade_ui["cancel_button_rect"].collidepoint(pos):
             return "cancel"
