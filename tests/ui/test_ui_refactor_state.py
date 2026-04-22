@@ -145,6 +145,16 @@ def test_phase_banner_uses_active_player_color_and_name() -> None:
     assert label == "Speler P1 aan zet"
 
 
+def test_phase_banner_uses_setup_player_when_turn_is_none() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = replace(make_state(), turn=None, setup=SetupState(pending_settlement_player=2, order=[1, 2]))
+
+    color, label = renderer._phase_banner_config(state)
+
+    assert color == (92, 178, 92)
+    assert label == "Speler P2 aan zet"
+
+
 def test_clicking_dice_button_only_rolls() -> None:
     app = PygameApp(DummyPygame())
     state = make_state()

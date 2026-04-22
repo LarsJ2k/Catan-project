@@ -360,10 +360,15 @@ class PygameRenderer:
         action_button_rects["dice"] = dice_rect
 
     def _phase_banner_config(self, state: GameState) -> tuple[tuple[int, int, int], str]:
-        if state.turn is None:
-            return (120, 95, 40), "Setup fase"
-        current_player = state.turn.current_player
-        return self._player_color(current_player), f"Speler P{current_player} aan zet"
+        active_player = self._active_player_for_banner(state)
+        if active_player is None:
+            return (120, 95, 40), "Speler onbekend"
+        return self._player_color(active_player), f"Speler P{active_player} aan zet"
+
+    def _active_player_for_banner(self, state: GameState) -> int | None:
+        if state.turn is not None:
+            return state.turn.current_player
+        return state.setup.pending_settlement_player or state.setup.pending_road_player
 
     def _draw_trade_overlay(self, screen, state: GameState, active_player: int | None, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         if active_player is None:
