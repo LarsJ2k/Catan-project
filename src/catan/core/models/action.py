@@ -62,6 +62,12 @@ class BuildCity(ActionBase):
 
 
 @dataclass(frozen=True)
+class BankTrade(ActionBase):
+    offer_resource: ResourceType
+    request_resource: ResourceType
+
+
+@dataclass(frozen=True)
 class EndTurn(ActionBase):
     pass
 
@@ -77,5 +83,6 @@ Action = (
     | BuildRoad
     | BuildSettlement
     | BuildCity
+    | BankTrade
     | EndTurn
 )
