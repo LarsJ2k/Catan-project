@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions
-from catan.core.models.action import DiscardResources, MoveRobber, RollDice, SkipSteal, StealResource
+from catan.core.models.action import DiscardResources, MoveRobber, RollDice, StealResource
 from catan.core.models.enums import GamePhase, ResourceType, TurnStep
 from catan.core.models.state import GameState, InitialGameConfig, PlacedPieces, SetupState, TurnState
 from catan.core.rng import roll_two_d6
@@ -97,7 +97,7 @@ def test_robber_blocks_production() -> None:
     assert sum(after.players[1].resources.values()) == 0
 
 
-def test_robber_move_legality_and_optional_steal() -> None:
+def test_robber_move_with_one_eligible_victim_auto_steals() -> None:
     state = _base_main_turn_state()
     tile = next(t for t in state.board.tiles if t.id != state.robber_tile_id)
     node = state.board.tile_to_nodes[tile.id][0]
@@ -116,28 +116,88 @@ def test_robber_move_legality_and_optional_steal() -> None:
     legal = get_legal_actions(state, 1)
     assert any(isinstance(a, MoveRobber) for a in legal)
 
-    state = apply_action(state, MoveRobber(player_id=1, tile_id=tile.id))
-    assert state.robber_tile_id == tile.id
-    assert state.turn.step == TurnStep.ROBBER_STEAL
-
-    steal_action = next(a for a in get_legal_actions(state, 1) if isinstance(a, StealResource))
-    after = apply_action(state, steal_action)
+    after = apply_action(state, MoveRobber(player_id=1, tile_id=tile.id))
+    assert after.robber_tile_id == tile.id
+    assert after.turn.step == TurnStep.ACTIONS
     assert sum(after.players[1].resources.values()) == 1
+
+
+def test_robber_move_with_no_eligible_victim_auto_skips_steal() -> None:
+    state = _base_main_turn_state()
+    tile = next(t for t in state.board.tiles if t.id != state.robber_tile_id)
+    node = state.board.tile_to_nodes[tile.id][0]
+
+    players = dict(state.players)
+    players[2] = replace(players[2], resources={r: 0 for r in ResourceType})
+
+    state = replace(
+        state,
+        players=players,
+        placed=PlacedPieces(settlements={node: 2}, roads={}, cities={}),
+        turn=TurnState(current_player=1, step=TurnStep.ROBBER_MOVE, priority_player=1),
+    )
+
+    after = apply_action(state, MoveRobber(player_id=1, tile_id=tile.id))
+    assert after.turn.step == TurnStep.ACTIONS
+    assert all(not isinstance(action, StealResource) for action in get_legal_actions(after, 1))
+
+
+def test_robber_move_with_multiple_adjacent_only_one_with_cards_auto_steals() -> None:
+    state = _base_main_turn_state()
+    tile = next(t for t in state.board.tiles if t.id != state.robber_tile_id and len(state.board.tile_to_nodes[t.id]) >= 2)
+    node_a, node_b = state.board.tile_to_nodes[tile.id][:2]
+
+    players = dict(state.players)
+    players[2] = replace(players[2], resources={r: 0 for r in ResourceType})
+    players[3] = replace(players[3], resources={r: 1 for r in ResourceType})
+    state = replace(
+        state,
+        players=players,
+        placed=PlacedPieces(settlements={node_a: 2, node_b: 3}, roads={}, cities={}),
+        turn=TurnState(current_player=1, step=TurnStep.ROBBER_MOVE, priority_player=1),
+    )
+
+    after = apply_action(state, MoveRobber(player_id=1, tile_id=tile.id))
+    assert after.turn.step == TurnStep.ACTIONS
+    assert sum(after.players[1].resources.values()) == 1
+
+
+def test_robber_move_with_multiple_eligible_requires_manual_selection() -> None:
+    state = _base_main_turn_state()
+    tile = next(t for t in state.board.tiles if t.id != state.robber_tile_id and len(state.board.tile_to_nodes[t.id]) >= 2)
+    node_a, node_b = state.board.tile_to_nodes[tile.id][:2]
+
+    players = dict(state.players)
+    players[2] = replace(players[2], resources={r: 1 for r in ResourceType})
+    players[3] = replace(players[3], resources={r: 1 for r in ResourceType})
+    state = replace(
+        state,
+        players=players,
+        placed=PlacedPieces(settlements={node_a: 2, node_b: 3}, roads={}, cities={}),
+        turn=TurnState(current_player=1, step=TurnStep.ROBBER_MOVE, priority_player=1),
+    )
+
+    after = apply_action(state, MoveRobber(player_id=1, tile_id=tile.id))
+    assert after.turn.step == TurnStep.ROBBER_STEAL
+    legal = get_legal_actions(after, 1)
+    targets = sorted(action.target_player_id for action in legal if isinstance(action, StealResource))
+    assert targets == [2, 3]
 
 
 def test_steal_determinism_same_seed_same_actions() -> None:
     s1 = _base_main_turn_state()
     s2 = _base_main_turn_state()
-    tile = next(t for t in s1.board.tiles if t.id != s1.robber_tile_id)
-    node = s1.board.tile_to_nodes[tile.id][0]
+    tile = next(t for t in s1.board.tiles if t.id != s1.robber_tile_id and len(s1.board.tile_to_nodes[t.id]) >= 2)
+    node_a, node_b = s1.board.tile_to_nodes[tile.id][:2]
 
     def prep(state: GameState) -> GameState:
         players = dict(state.players)
         players[2] = replace(players[2], resources={r: 1 for r in ResourceType})
+        players[3] = replace(players[3], resources={r: 1 for r in ResourceType})
         return replace(
             state,
             players=players,
-            placed=PlacedPieces(settlements={node: 2}, roads={}, cities={}),
+            placed=PlacedPieces(settlements={node_a: 2, node_b: 3}, roads={}, cities={}),
             turn=TurnState(current_player=1, step=TurnStep.ROBBER_MOVE, priority_player=1),
             rng_state=1234,
         )

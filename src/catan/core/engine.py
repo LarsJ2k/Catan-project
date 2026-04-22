@@ -88,9 +88,7 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
     if state.turn.step == TurnStep.ROBBER_MOVE:
         return [MoveRobber(player_id=player_id, tile_id=tile.id) for tile in state.board.tiles if tile.id != state.robber_tile_id]
     if state.turn.step == TurnStep.ROBBER_STEAL:
-        legal: list[Action] = [SkipSteal(player_id=player_id)]
-        legal.extend(StealResource(player_id=player_id, target_player_id=target) for target in _eligible_robber_targets(state, player_id))
-        return legal
+        return [StealResource(player_id=player_id, target_player_id=target) for target in _eligible_robber_targets(state, player_id)]
 
     legal_actions: list[Action] = [EndTurn(player_id=player_id)]
     legal_actions.extend(BuildRoad(player_id=player_id, edge_id=edge_id) for edge_id in _legal_road_edges(state, player_id))
@@ -355,15 +353,22 @@ def _apply_discard_resources(state: GameState, action: DiscardResources) -> Game
 
 
 def _apply_move_robber(state: GameState, action: MoveRobber) -> GameState:
-    targets = _eligible_robber_targets(replace(state, robber_tile_id=action.tile_id), action.player_id)
-    if targets:
-        return replace(state, robber_tile_id=action.tile_id, turn=replace(state.turn, step=TurnStep.ROBBER_STEAL, priority_player=action.player_id))
-    return replace(state, robber_tile_id=action.tile_id, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+    moved_state = replace(state, robber_tile_id=action.tile_id)
+    targets = _eligible_robber_targets(moved_state, action.player_id)
+    if not targets:
+        return replace(moved_state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+    if len(targets) == 1:
+        return _resolve_robber_steal(moved_state, action.player_id, targets[0])
+    return replace(moved_state, turn=replace(state.turn, step=TurnStep.ROBBER_STEAL, priority_player=action.player_id))
 
 
 def _apply_steal_resource(state: GameState, action: StealResource) -> GameState:
-    target = state.players[action.target_player_id]
-    taker = state.players[action.player_id]
+    return _resolve_robber_steal(state, action.player_id, action.target_player_id)
+
+
+def _resolve_robber_steal(state: GameState, player_id: PlayerId, target_player_id: PlayerId) -> GameState:
+    target = state.players[target_player_id]
+    taker = state.players[player_id]
     available = [res for res, amount in target.resources.items() if amount > 0]
     if not available:
         return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
@@ -381,8 +386,8 @@ def _apply_steal_resource(state: GameState, action: StealResource) -> GameState:
         rng_state=next_rng,
         players={
             **state.players,
-            action.target_player_id: replace(target, resources=target_res),
-            action.player_id: replace(taker, resources=taker_res),
+            target_player_id: replace(target, resources=target_res),
+            player_id: replace(taker, resources=taker_res),
         },
         turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
     )

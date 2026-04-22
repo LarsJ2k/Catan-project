@@ -15,6 +15,7 @@ from catan.core.models.action import (
     SkipSteal,
     StealResource,
 )
+from catan.core.models.state import GameState
 
 from .layout import BoardLayout
 
@@ -36,7 +37,7 @@ class PygameInputMapper:
     def __init__(self, pygame_module) -> None:
         self.pg = pygame_module
 
-    def map_event(self, event, legal_actions: Iterable[object], layout: BoardLayout, roll_rect, end_rect) -> InputResult:
+    def map_event(self, event, legal_actions: Iterable[object], layout: BoardLayout, roll_rect, end_rect, state: GameState) -> InputResult:
         legal = list(legal_actions)
         if event.type == self.pg.KEYDOWN:
             if event.key == self.pg.K_r:
@@ -75,6 +76,8 @@ class PygameInputMapper:
 
         if node_id is not None:
             action = self._find_node_action(legal, node_id)
+            if action is None:
+                action = self._find_steal_action_for_node(legal, state, node_id)
             if action is not None:
                 return InputResult(action=action, status=f"clicked node {node_id}")
 
@@ -109,6 +112,15 @@ class PygameInputMapper:
         edge_types = (PlaceSetupRoad, BuildRoad)
         for action in legal:
             if isinstance(action, edge_types) and action.edge_id == edge_id:
+                return action
+        return None
+
+    def _find_steal_action_for_node(self, legal: list[object], state: GameState, node_id: int) -> object | None:
+        owner = state.placed.cities.get(node_id) or state.placed.settlements.get(node_id)
+        if owner is None:
+            return None
+        for action in legal:
+            if isinstance(action, StealResource) and action.target_player_id == owner:
                 return action
         return None
 
