@@ -12,6 +12,11 @@ from catan.ui.pygame_ui import app as app_module
 
 class FakePygame:
     QUIT = 256
+    KEYDOWN = 257
+    VIDEORESIZE = 258
+    K_F11 = 122
+    RESIZABLE = 1
+    FULLSCREEN = 2
 
     def __init__(self) -> None:
         self.inited = False
@@ -30,12 +35,21 @@ class FakePygame:
                 return None
 
             @staticmethod
-            def set_mode(_size):
-                return object()
+            def set_mode(_size, _flags=0):
+                return _Screen()
 
             @staticmethod
             def flip() -> None:
                 return None
+
+            @staticmethod
+            def Info():
+                return type("Info", (), {"current_w": 1280, "current_h": 720})()
+
+        class _Screen:
+            @staticmethod
+            def get_size() -> tuple[int, int]:
+                return (1200, 820)
 
         class _Clock:
             @staticmethod

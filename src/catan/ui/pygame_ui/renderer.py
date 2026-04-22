@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, PlaceSetupRoad, PlaceSetupSettlement, RollDice
-from catan.core.models.enums import TerrainType
+from catan.core.models.enums import ResourceType, TerrainType
 from catan.core.models.state import GameState
 
 from .input_mapper import HoverTarget
@@ -53,11 +53,15 @@ class PygameRenderer:
         selected_action_text: str | None,
         hover_target: HoverTarget,
         last_applied_action: str | None,
+        fullscreen: bool,
     ) -> DrawnUi:
         legal_nodes, legal_edges, can_roll, can_end = extract_legal_targets(legal_actions)
+        width, height = screen.get_size()
+        panel_width = 320
+        panel_x = width - panel_width
 
-        self.pg.draw.rect(screen, (28, 28, 32), (0, 0, 1000, 720))
-        self._draw_phase_banner(screen, state)
+        self.pg.draw.rect(screen, (28, 28, 32), (0, 0, width, height))
+        self._draw_phase_banner(screen, state, width=width, panel_x=panel_x, fullscreen=fullscreen)
         self._draw_tiles(screen, state, layout)
         self._draw_board(screen, state, layout, legal_nodes, legal_edges, hover_target)
         roll_rect, end_rect = self._draw_side_panel(
@@ -70,15 +74,21 @@ class PygameRenderer:
             can_roll,
             can_end,
             last_applied_action,
+            panel_x=panel_x,
+            panel_width=panel_width,
+            height=height,
         )
         return DrawnUi(roll_button_rect=roll_rect, end_turn_button_rect=end_rect)
 
-    def _draw_phase_banner(self, screen, state: GameState) -> None:
+    def _draw_phase_banner(self, screen, state: GameState, *, width: int, panel_x: int, fullscreen: bool) -> None:
         is_setup = state.turn is None
         color = (120, 95, 40) if is_setup else (40, 95, 120)
         label = "SETUP PHASE" if is_setup else "MAIN TURN"
-        self.pg.draw.rect(screen, color, (20, 20, 650, 28), border_radius=6)
-        screen.blit(self.font.render(label, True, (255, 255, 255)), (30, 25))
+        board_width = max(panel_x - 40, 200)
+        self.pg.draw.rect(screen, color, (20, 20, board_width, 30), border_radius=6)
+        mode = "Fullscreen" if fullscreen else "Windowed"
+        banner_text = f"{label}  |  {mode} (F11 toggle)"
+        screen.blit(self.font.render(banner_text, True, (255, 255, 255)), (30, 26))
 
     def _draw_tiles(self, screen, state: GameState, layout: BoardLayout) -> None:
         if not layout.tile_polygons:
@@ -93,11 +103,11 @@ class PygameRenderer:
             self.pg.draw.polygon(screen, color, polygon)
             self.pg.draw.polygon(screen, (50, 50, 50), polygon, width=2)
 
-            resource_label = tile.terrain.name[:3]
+            resource_label = self._terrain_name(tile.terrain)
             number_label = str(tile.number_token) if tile.number_token is not None else "-"
             center_x, center_y = label_pos
-            screen.blit(self.small_font.render(resource_label, True, (20, 20, 20)), (center_x - 14, center_y - 14))
-            screen.blit(self.font.render(number_label, True, (20, 20, 20)), (center_x - 10, center_y + 2))
+            screen.blit(self.small_font.render(resource_label, True, (20, 20, 20)), (center_x - 28, center_y - 14))
+            screen.blit(self.font.render(number_label, True, (20, 20, 20)), (center_x - 8, center_y + 2))
             screen.blit(self.small_font.render(f"#{tile.id}", True, (60, 60, 60)), (center_x - 10, center_y + 24))
 
     def _draw_board(
@@ -151,9 +161,12 @@ class PygameRenderer:
         can_roll: bool,
         can_end: bool,
         last_applied_action: str | None,
+        *,
+        panel_x: int,
+        panel_width: int,
+        height: int,
     ):
-        panel_x = 700
-        self.pg.draw.rect(screen, (38, 38, 44), (panel_x, 0, 300, 720))
+        self.pg.draw.rect(screen, (38, 38, 44), (panel_x, 0, panel_width, height))
 
         phase = state.phase.name
         step = state.turn.step.name if state.turn else "SETUP"
@@ -173,21 +186,25 @@ class PygameRenderer:
         y += 22
         if active_player is not None:
             player = state.players[active_player]
-            resources = ", ".join(f"{r.name[0]}:{c}" for r, c in player.resources.items() if c > 0) or "none"
             screen.blit(self.small_font.render(f"P{active_player} VP: {player.victory_points}", True, self._player_color(active_player)), (panel_x + 10, y))
+            y += 20
+            screen.blit(self.small_font.render("Resources:", True, (220, 220, 220)), (panel_x + 10, y))
             y += 18
-            screen.blit(self.small_font.render(f"Resources: {resources}", True, (220, 220, 220)), (panel_x + 10, y))
-            y += 18
+            for resource in [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]:
+                label = self._resource_name(resource)
+                amount = player.resources.get(resource, 0)
+                screen.blit(self.small_font.render(f"{label}: {amount}", True, (220, 220, 220)), (panel_x + 10, y))
+                y += 16
 
         y += 8
-        roll_rect = self.pg.Rect(panel_x + 10, y, 130, 34)
-        end_rect = self.pg.Rect(panel_x + 150, y, 130, 34)
+        roll_rect = self.pg.Rect(panel_x + 10, y, 145, 34)
+        end_rect = self.pg.Rect(panel_x + 165, y, 145, 34)
         roll_color = (70, 95, 140) if can_roll else (55, 55, 60)
         end_color = (95, 70, 140) if can_end else (55, 55, 60)
         self.pg.draw.rect(screen, roll_color, roll_rect)
         self.pg.draw.rect(screen, end_color, end_rect)
-        screen.blit(self.small_font.render("Roll [R]", True, (255, 255, 255)), (roll_rect.x + 28, roll_rect.y + 8))
-        screen.blit(self.small_font.render("End [E]", True, (255, 255, 255)), (end_rect.x + 32, end_rect.y + 8))
+        screen.blit(self.small_font.render("Roll [R]", True, (255, 255, 255)), (roll_rect.x + 35, roll_rect.y + 8))
+        screen.blit(self.small_font.render("End [E]", True, (255, 255, 255)), (end_rect.x + 40, end_rect.y + 8))
 
         y += 48
         screen.blit(self.font.render("Legal actions", True, (238, 238, 238)), (panel_x + 10, y))
@@ -207,8 +224,9 @@ class PygameRenderer:
         y += 8
         screen.blit(self.font.render("Event log", True, (238, 238, 238)), (panel_x + 10, y))
         y += 22
-        for line in event_log[-14:]:
-            screen.blit(self.small_font.render(line[:46], True, (200, 200, 200)), (panel_x + 10, y))
+        available_lines = max((height - y - 12) // 16, 6)
+        for line in event_log[-available_lines:]:
+            screen.blit(self.small_font.render(line[:48], True, (200, 200, 200)), (panel_x + 10, y))
             y += 16
 
         return roll_rect, end_rect
@@ -239,3 +257,24 @@ class PygameRenderer:
             TerrainType.DESERT: (226, 209, 162),
         }
         return colors.get(terrain, (200, 200, 200))
+
+    def _terrain_name(self, terrain: TerrainType) -> str:
+        names = {
+            TerrainType.HILLS: "Brick",
+            TerrainType.FOREST: "Lumber",
+            TerrainType.FIELDS: "Wheat",
+            TerrainType.MOUNTAINS: "Ore",
+            TerrainType.PASTURE: "Sheep",
+            TerrainType.DESERT: "Desert",
+        }
+        return names.get(terrain, terrain.name.title())
+
+    def _resource_name(self, resource: ResourceType) -> str:
+        names = {
+            ResourceType.BRICK: "Brick",
+            ResourceType.LUMBER: "Lumber",
+            ResourceType.GRAIN: "Wheat",
+            ResourceType.ORE: "Ore",
+            ResourceType.WOOL: "Sheep",
+        }
+        return names[resource]
