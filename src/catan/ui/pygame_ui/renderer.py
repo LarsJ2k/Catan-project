@@ -142,15 +142,11 @@ class PygameRenderer:
         )
 
     def _draw_phase_banner(self, screen, state: GameState, *, width: int, panel_x: int, fullscreen: bool, bottom_bar_height: int) -> None:
-        is_setup = state.turn is None
-        color = (120, 95, 40) if is_setup else (40, 95, 120)
-        label = "SETUP PHASE" if is_setup else "MAIN TURN"
+        color, label = self._phase_banner_config(state)
         board_width = max(panel_x - 40, 200)
         board_height_limit = max(40, bottom_bar_height // 8)
         self.pg.draw.rect(screen, color, (20, 20, board_width, 30), border_radius=6)
-        mode = "Fullscreen" if fullscreen else "Windowed"
-        banner_text = f"{label}  |  {mode} (F11 toggle)"
-        screen.blit(self.font.render(banner_text, True, (255, 255, 255)), (30, 26))
+        screen.blit(self.font.render(label, True, (255, 255, 255)), (30, 26))
         self.pg.draw.line(screen, (70, 70, 75), (20, 55 + board_height_limit), (panel_x - 20, 55 + board_height_limit), 1)
 
     def _draw_tiles(self, screen, state: GameState, layout: BoardLayout, legal_tiles: set[int], hover_tile: int | None) -> None:
@@ -332,21 +328,42 @@ class PygameRenderer:
         bx = start_x + 5 * (card_w + gap) + 18
         by = bar_y + 10
         bw = 112
-        bh = 30
+        bh = 38
         for idx, (label, key) in enumerate(labels):
             rect = self.pg.Rect(bx + idx * (bw + 8), by, bw, bh)
             enabled = self._is_action_enabled(key, legal_actions, state, active_player)
             self.pg.draw.rect(screen, (78, 110, 95) if enabled else (70, 70, 72), rect, border_radius=5)
-            screen.blit(self.small_font.render(label, True, (245, 245, 245)), (rect.x + 10, rect.y + 8))
+            screen.blit(self.small_font.render(label, True, (245, 245, 245)), (rect.x + 10, rect.y + 12))
             action_button_rects[key] = rect
         can_roll = any(isinstance(a, RollDice) for a in legal_actions)
         can_end = any(isinstance(a, EndTurn) for a in legal_actions)
         primary_label = primary_turn_button_state(can_roll=can_roll, can_end=can_end)
         primary_enabled = can_roll or can_end
-        p_rect = self.pg.Rect(bx, by + bh + 10, 170, 34)
+        p_rect = self.pg.Rect(bx + len(labels) * (bw + 8), by, 170, bh)
         self.pg.draw.rect(screen, (86, 112, 150) if primary_enabled else (72, 72, 74), p_rect, border_radius=6)
-        screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (p_rect.x + 18, p_rect.y + 9))
+        screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (p_rect.x + 18, p_rect.y + 12))
         action_button_rects["primary"] = p_rect
+        self._draw_dice_button(screen, panel_x, bar_y, legal_actions, action_button_rects)
+
+    def _draw_dice_button(self, screen, panel_x: int, bar_y: int, legal_actions, action_button_rects: dict[str, object]) -> None:
+        can_roll = any(isinstance(a, RollDice) for a in legal_actions)
+        dice_rect = self.pg.Rect(panel_x - 104, bar_y - 92, 88, 72)
+        self.pg.draw.rect(screen, (95, 118, 155) if can_roll else (72, 72, 74), dice_rect, border_radius=8)
+        die_w = 34
+        die_h = 34
+        die_1 = self.pg.Rect(dice_rect.x + 8, dice_rect.y + 19, die_w, die_h)
+        die_2 = self.pg.Rect(dice_rect.x + 46, dice_rect.y + 19, die_w, die_h)
+        self.pg.draw.rect(screen, (245, 245, 245), die_1, border_radius=6)
+        self.pg.draw.rect(screen, (245, 245, 245), die_2, border_radius=6)
+        for pip in [(die_1.centerx, die_1.centery), (die_2.x + 10, die_2.y + 10), (die_2.right - 10, die_2.bottom - 10)]:
+            self.pg.draw.circle(screen, (30, 30, 30), pip, 3)
+        action_button_rects["dice"] = dice_rect
+
+    def _phase_banner_config(self, state: GameState) -> tuple[tuple[int, int, int], str]:
+        if state.turn is None:
+            return (120, 95, 40), "Setup fase"
+        current_player = state.turn.current_player
+        return self._player_color(current_player), f"Speler P{current_player} aan zet"
 
     def _draw_trade_overlay(self, screen, state: GameState, active_player: int | None, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         if active_player is None:

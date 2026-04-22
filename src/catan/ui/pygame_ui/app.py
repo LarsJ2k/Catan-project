@@ -355,6 +355,10 @@ class PygameApp:
             end = next((a for a in legal_actions if isinstance(a, EndTurn)), None)
             if end is not None:
                 return end
+        if button_rects.get("dice") and button_rects["dice"].collidepoint(pos):
+            roll = next((a for a in legal_actions if isinstance(a, RollDice)), None)
+            if roll is not None:
+                return roll
         if trade_window_open and button_rects.get("trade_cancel") and button_rects["trade_cancel"].collidepoint(pos):
             return "trade_cancel"
         if build_mode is not None:
