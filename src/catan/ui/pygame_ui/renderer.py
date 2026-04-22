@@ -324,6 +324,8 @@ class PygameRenderer:
             x = start_x + idx * (card_w + gap)
             shown_amount = max(player.resources.get(resource, 0) - int(offered.get(resource, 0)), 0)
             self._draw_resource_card(screen, x, bar_y + 44, card_w, card_h, resource, shown_amount)
+            if trade_ui is not None:
+                trade_ui["hand_rects"][resource] = self.pg.Rect(x, bar_y + 44, card_w, card_h)
         labels = [("Trade", "trade"), ("Buy Dev Card", "dev"), ("Buy Road", "road"), ("Buy Settlement", "settlement"), ("Buy City", "city")]
         bx = start_x + 5 * (card_w + gap) + 18
         by = bar_y + 10
@@ -343,9 +345,9 @@ class PygameRenderer:
         self.pg.draw.rect(screen, (86, 112, 150) if primary_enabled else (72, 72, 74), p_rect, border_radius=6)
         screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (p_rect.x + 18, p_rect.y + 12))
         action_button_rects["primary"] = p_rect
-        self._draw_dice_button(screen, panel_x, bar_y, legal_actions, action_button_rects)
+        self._draw_dice_button(screen, panel_x, bar_y, legal_actions, action_button_rects, state)
 
-    def _draw_dice_button(self, screen, panel_x: int, bar_y: int, legal_actions, action_button_rects: dict[str, object]) -> None:
+    def _draw_dice_button(self, screen, panel_x: int, bar_y: int, legal_actions, action_button_rects: dict[str, object], state: GameState) -> None:
         can_roll = any(isinstance(a, RollDice) for a in legal_actions)
         dice_rect = self.pg.Rect(panel_x - 104, bar_y - 92, 88, 72)
         self.pg.draw.rect(screen, (95, 118, 155) if can_roll else (72, 72, 74), dice_rect, border_radius=8)
@@ -355,15 +357,46 @@ class PygameRenderer:
         die_2 = self.pg.Rect(dice_rect.x + 46, dice_rect.y + 19, die_w, die_h)
         self.pg.draw.rect(screen, (245, 245, 245), die_1, border_radius=6)
         self.pg.draw.rect(screen, (245, 245, 245), die_2, border_radius=6)
-        for pip in [(die_1.centerx, die_1.centery), (die_2.x + 10, die_2.y + 10), (die_2.right - 10, die_2.bottom - 10)]:
-            self.pg.draw.circle(screen, (30, 30, 30), pip, 3)
+        roll = state.turn.last_roll if state.turn and state.turn.last_roll is not None else (1, 1)
+        self._draw_die_pips(screen, die_1, roll[0])
+        self._draw_die_pips(screen, die_2, roll[1])
         action_button_rects["dice"] = dice_rect
+
+    def _draw_die_pips(self, screen, die_rect, value: int) -> None:
+        cx, cy = die_rect.centerx, die_rect.centery
+        left = die_rect.x + 10
+        right = die_rect.right - 10
+        top = die_rect.y + 10
+        bottom = die_rect.bottom - 10
+        mapping = {
+            1: [(cx, cy)],
+            2: [(left, top), (right, bottom)],
+            3: [(left, top), (cx, cy), (right, bottom)],
+            4: [(left, top), (right, top), (left, bottom), (right, bottom)],
+            5: [(left, top), (right, top), (cx, cy), (left, bottom), (right, bottom)],
+            6: [(left, top), (right, top), (left, cy), (right, cy), (left, bottom), (right, bottom)],
+        }
+        for pip in mapping.get(value, mapping[1]):
+            self.pg.draw.circle(screen, (30, 30, 30), pip, 3)
 
     def _phase_banner_config(self, state: GameState) -> tuple[tuple[int, int, int], str]:
         active_player = self._active_player_for_banner(state)
         if active_player is None:
             return (120, 95, 40), "Speler onbekend"
-        return self._player_color(active_player), f"Speler P{active_player} aan zet"
+        if state.turn is None:
+            if state.setup.pending_settlement_player is not None:
+                return self._player_color(active_player), f"Setup fase • P{active_player}: plaats een settlement"
+            if state.setup.pending_road_player is not None:
+                return self._player_color(active_player), f"Setup fase • P{active_player}: plaats een road"
+            return self._player_color(active_player), f"Setup fase • P{active_player} aan zet"
+        step_labels = {
+            TurnStep.ROLL: f"P{active_player}: gooi de dobbelstenen",
+            TurnStep.DISCARD: f"P{active_player}: kies kaarten om te discarden",
+            TurnStep.ROBBER_MOVE: f"P{active_player}: zet de struikrover op een tile",
+            TurnStep.ROBBER_STEAL: f"P{active_player}: kies een tegenstander om van te stelen",
+            TurnStep.ACTIONS: f"P{active_player}: bouw, trade of eindig je beurt",
+        }
+        return self._player_color(active_player), step_labels.get(state.turn.step, f"Speler P{active_player} aan zet")
 
     def _active_player_for_banner(self, state: GameState) -> int | None:
         if state.turn is not None:
@@ -373,7 +406,7 @@ class PygameRenderer:
     def _draw_trade_overlay(self, screen, state: GameState, active_player: int | None, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         if active_player is None:
             return
-        overlay_h = max(int(bottom_h * 0.72), 118)
+        overlay_h = max(int(bottom_h * 1.14), 220)
         y = height - bottom_h - overlay_h - 8
         self.pg.draw.rect(screen, (45, 45, 52), (10, y, panel_x - 20, overlay_h), border_radius=8)
         screen.blit(self.font.render("Trade Draft", True, (240, 240, 240)), (24, y + 10))
@@ -383,12 +416,24 @@ class PygameRenderer:
         status = "Valid bank trade" if valid else "Invalid bank trade"
         screen.blit(self.small_font.render(status, True, (120, 220, 120) if valid else (220, 140, 140)), (24, y + 34))
         rx = 24
+        labels = [
+            "Rij 1: Bank/Tegenstander (klik om toe te voegen)",
+            "Rij 2: Trade opponent (klik om te verwijderen)",
+            "Rij 3: Trade mijn kant (klik om terug te zetten)",
+            "Rij 4: Mijn resources (onderste rij)",
+        ]
+        for idx, label in enumerate(labels):
+            screen.blit(self.small_font.render(label, True, (214, 214, 214)), (24, y + 52 + idx * 50 - 14))
         for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
             rect = self.pg.Rect(rx + idx * 72, y + 52, 66, 42)
+            self._draw_resource_card(screen, rect.x, rect.y, rect.width, rect.height, resource, 99, compact=True)
+            trade_ui["bank_supply_rects"][resource] = rect
+        for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
+            rect = self.pg.Rect(rx + idx * 72, y + 102, 66, 42)
             self._draw_resource_card(screen, rect.x, rect.y, rect.width, rect.height, resource, int(req.get(resource, 0)), compact=True)
             trade_ui["request_rects"][resource] = rect
         for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
-            rect = self.pg.Rect(rx + idx * 72, y + 102, 66, 42)
+            rect = self.pg.Rect(rx + idx * 72, y + 152, 66, 42)
             self._draw_resource_card(screen, rect.x, rect.y, rect.width, rect.height, resource, int(offer.get(resource, 0)), compact=True)
             trade_ui["offer_rects"][resource] = rect
         right_x = panel_x - 190

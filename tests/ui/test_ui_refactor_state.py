@@ -88,8 +88,10 @@ def test_trade_draft_offer_click_caps_to_available_resources_and_cancel_signal()
     offered = {r: 0 for r in ResourceType}
     requested = {r: 0 for r in ResourceType}
     trade_ui = {
+        "bank_supply_rects": {r: DummyRect(False) for r in ResourceType},
         "request_rects": {r: DummyRect(False) for r in ResourceType},
-        "offer_rects": {r: DummyRect(r == ResourceType.ORE) for r in ResourceType},
+        "offer_rects": {r: DummyRect(False) for r in ResourceType},
+        "hand_rects": {r: DummyRect(r == ResourceType.ORE) for r in ResourceType},
         "cancel_button_rect": DummyRect(False),
         "bank_button_rect": DummyRect(False),
     }
@@ -98,7 +100,7 @@ def test_trade_draft_offer_click_caps_to_available_resources_and_cancel_signal()
     app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
     assert offered[ResourceType.ORE] == 1
 
-    trade_ui["offer_rects"][ResourceType.ORE] = DummyRect(False)
+    trade_ui["hand_rects"][ResourceType.ORE] = DummyRect(False)
     trade_ui["cancel_button_rect"] = DummyRect(True)
     assert app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested) == "cancel"
 
@@ -142,7 +144,7 @@ def test_phase_banner_uses_active_player_color_and_name() -> None:
     color, label = renderer._phase_banner_config(state)
 
     assert color == (235, 87, 87)
-    assert label == "Speler P1 aan zet"
+    assert label == "P1: bouw, trade of eindig je beurt"
 
 
 def test_phase_banner_uses_setup_player_when_turn_is_none() -> None:
@@ -152,7 +154,7 @@ def test_phase_banner_uses_setup_player_when_turn_is_none() -> None:
     color, label = renderer._phase_banner_config(state)
 
     assert color == (92, 178, 92)
-    assert label == "Speler P2 aan zet"
+    assert label == "Setup fase • P2: plaats een settlement"
 
 
 def test_clicking_dice_button_only_rolls() -> None:
@@ -176,3 +178,54 @@ def test_clicking_dice_button_only_rolls() -> None:
 
     clicked = app._handle_action_button_click((0, 0), button_rects, [end_action], state, 1, None, False)
     assert clicked is None
+
+
+def test_build_mode_is_not_cleared_by_non_button_click() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    button_rects = {
+        "trade": DummyRect(False),
+        "dev": DummyRect(False),
+        "road": DummyRect(False),
+        "settlement": DummyRect(False),
+        "city": DummyRect(False),
+        "primary": DummyRect(False),
+        "dice": DummyRect(False),
+        "trade_cancel": DummyRect(False),
+    }
+    clicked = app._handle_action_button_click((0, 0), button_rects, [], state, 1, "road", False)
+    assert clicked is None
+
+
+def test_trade_overlay_clicks_follow_four_row_behavior() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    p1 = replace(state.players[1], resources={**state.players[1].resources, ResourceType.ORE: 2})
+    state = replace(state, players={1: p1, 2: state.players[2]})
+    offered = {r: 0 for r in ResourceType}
+    requested = {r: 0 for r in ResourceType}
+    trade_ui = {
+        "bank_supply_rects": {r: DummyRect(r == ResourceType.GRAIN) for r in ResourceType},
+        "request_rects": {r: DummyRect(False) for r in ResourceType},
+        "offer_rects": {r: DummyRect(False) for r in ResourceType},
+        "hand_rects": {r: DummyRect(r == ResourceType.ORE) for r in ResourceType},
+        "cancel_button_rect": DummyRect(False),
+        "bank_button_rect": DummyRect(False),
+    }
+
+    app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
+    assert requested[ResourceType.GRAIN] == 1
+
+    trade_ui["bank_supply_rects"][ResourceType.GRAIN] = DummyRect(False)
+    trade_ui["request_rects"][ResourceType.GRAIN] = DummyRect(True)
+    app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
+    assert requested[ResourceType.GRAIN] == 0
+
+    trade_ui["request_rects"][ResourceType.GRAIN] = DummyRect(False)
+    app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
+    assert offered[ResourceType.ORE] == 1
+
+    trade_ui["hand_rects"][ResourceType.ORE] = DummyRect(False)
+    trade_ui["offer_rects"][ResourceType.ORE] = DummyRect(True)
+    app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
+    assert offered[ResourceType.ORE] == 0
