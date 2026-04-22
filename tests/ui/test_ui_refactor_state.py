@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, EndTurn, RollDice
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, DiscardResources, EndTurn, RollDice
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
@@ -229,3 +229,60 @@ def test_trade_overlay_clicks_follow_four_row_behavior() -> None:
     trade_ui["offer_rects"][ResourceType.ORE] = DummyRect(True)
     app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
     assert offered[ResourceType.ORE] == 0
+
+
+def test_discard_overlay_clicks_add_remove_and_submit() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    p1 = replace(
+        state.players[1],
+        resources={**state.players[1].resources, ResourceType.BRICK: 2, ResourceType.ORE: 2},
+    )
+    state = replace(state, players={1: p1, 2: state.players[2]})
+    selection = {r: 0 for r in ResourceType}
+    discard_ui = {
+        "required": 2,
+        "hand_rects": {r: DummyRect(r == ResourceType.BRICK) for r in ResourceType},
+        "selected_rects": {r: DummyRect(False) for r in ResourceType},
+        "continue_button_rect": DummyRect(False),
+    }
+
+    app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection)
+    assert selection[ResourceType.BRICK] == 1
+
+    discard_ui["hand_rects"] = {r: DummyRect(r == ResourceType.ORE) for r in ResourceType}
+    app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection)
+    assert selection[ResourceType.ORE] == 1
+
+    discard_ui["hand_rects"] = {r: DummyRect(False) for r in ResourceType}
+    discard_ui["selected_rects"] = {r: DummyRect(r == ResourceType.BRICK) for r in ResourceType}
+    app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection)
+    assert selection[ResourceType.BRICK] == 0
+
+    discard_ui["hand_rects"] = {r: DummyRect(r == ResourceType.BRICK) for r in ResourceType}
+    app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection)
+    discard_ui["hand_rects"] = {r: DummyRect(False) for r in ResourceType}
+    discard_ui["selected_rects"] = {r: DummyRect(False) for r in ResourceType}
+    discard_ui["continue_button_rect"] = DummyRect(True)
+    action = app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection)
+    assert action == DiscardResources(
+        player_id=1,
+        resources=((ResourceType.BRICK, 1), (ResourceType.ORE, 1)),
+    )
+
+
+def test_discard_overlay_submit_stays_blocked_until_required_count() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    p1 = replace(state.players[1], resources={**state.players[1].resources, ResourceType.ORE: 2})
+    state = replace(state, players={1: p1, 2: state.players[2]})
+    selection = {r: 0 for r in ResourceType}
+    selection[ResourceType.ORE] = 1
+    discard_ui = {
+        "required": 2,
+        "hand_rects": {r: DummyRect(False) for r in ResourceType},
+        "selected_rects": {r: DummyRect(False) for r in ResourceType},
+        "continue_button_rect": DummyRect(True),
+    }
+
+    assert app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection) is None

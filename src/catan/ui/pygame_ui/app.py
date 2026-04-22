@@ -74,6 +74,14 @@ class PygameApp:
                     "offer_rects": {},
                     "hand_rects": {},
                 }
+            discard_ui = None
+            if state.turn and state.turn.step == TurnStep.DISCARD and active_player is not None:
+                discard_ui = {
+                    "required": state.discard_requirements.get(active_player, 0),
+                    "selected": discard_selection,
+                    "selected_rects": {},
+                    "hand_rects": {},
+                }
             drawn = renderer.render(
                 screen,
                 state,
@@ -87,6 +95,7 @@ class PygameApp:
                 self.fullscreen,
                 build_mode=build_mode,
                 trade_ui=trade_ui,
+                discard_ui=discard_ui,
                 event_log_offset=event_log_offset,
             )
 
@@ -119,6 +128,12 @@ class PygameApp:
                         continue
                     if drawn.event_log_scroll_down_rect is not None and drawn.event_log_scroll_down_rect.collidepoint(event.pos):
                         event_log_offset = max(event_log_offset - 1, 0)
+                        continue
+                    if discard_ui is not None:
+                        discard_action = self._handle_discard_overlay_click(event.pos, discard_ui, state, active_player, discard_selection)
+                        if discard_action is not None:
+                            selected_action_text = str(discard_action)
+                            controllers[active_player].submit_action_intent(discard_action)
                         continue
                     clicked_action = self._handle_action_button_click(
                         event.pos,
@@ -255,9 +270,36 @@ class PygameApp:
             return None
         if event.key in (self.pg.K_RETURN, self.pg.K_KP_ENTER):
             if sum(selection.values()) == required:
-                resources = tuple((resource, amount) for resource, amount in selection.items() if amount > 0)
-                return DiscardResources(player_id=player_id, resources=resources)
+                return self._to_discard_action(player_id, selection)
         return None
+
+    def _handle_discard_overlay_click(
+        self,
+        pos: tuple[int, int],
+        discard_ui: dict[str, object],
+        state: GameState,
+        active_player: int,
+        selection: dict[ResourceType, int],
+    ) -> DiscardResources | None:
+        required = int(discard_ui.get("required", 0))
+        for resource, rect in discard_ui["hand_rects"].items():
+            if rect.collidepoint(pos):
+                player_have = state.players[active_player].resources.get(resource, 0)
+                if selection[resource] < player_have and sum(selection.values()) < required:
+                    selection[resource] += 1
+                return None
+        for resource, rect in discard_ui["selected_rects"].items():
+            if rect.collidepoint(pos):
+                if selection[resource] > 0:
+                    selection[resource] -= 1
+                return None
+        if discard_ui["continue_button_rect"].collidepoint(pos) and sum(selection.values()) == required:
+            return self._to_discard_action(active_player, selection)
+        return None
+
+    def _to_discard_action(self, player_id: int, selection: dict[ResourceType, int]) -> DiscardResources:
+        resources = tuple((resource, amount) for resource, amount in selection.items() if amount > 0)
+        return DiscardResources(player_id=player_id, resources=resources)
 
     def _handle_bank_trade_event(
         self,

@@ -100,6 +100,7 @@ class PygameRenderer:
         *,
         build_mode: str | None,
         trade_ui: dict[str, object] | None,
+        discard_ui: dict[str, object] | None,
         event_log_offset: int = 0,
     ) -> DrawnUi:
         legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end = extract_legal_targets(
@@ -130,9 +131,11 @@ class PygameRenderer:
             height=height,
             event_log_offset=event_log_offset,
         )
-        self._draw_bottom_bar(screen, state, active_player, legal_actions, width, height, panel_x, bottom_bar_height, action_button_rects, trade_ui)
+        self._draw_bottom_bar(screen, state, active_player, legal_actions, width, height, panel_x, bottom_bar_height, action_button_rects, trade_ui, discard_ui)
         if trade_ui:
             self._draw_trade_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, trade_ui)
+        if discard_ui:
+            self._draw_discard_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, discard_ui)
         return DrawnUi(
             roll_button_rect=roll_rect,
             end_turn_button_rect=end_rect,
@@ -308,7 +311,20 @@ class PygameRenderer:
         }
         return roll_rect, end_rect, action_button_rects, up_rect, down_rect
 
-    def _draw_bottom_bar(self, screen, state: GameState, active_player: int | None, legal_actions, width: int, height: int, panel_x: int, bottom_h: int, action_button_rects: dict[str, object], trade_ui: dict[str, object] | None) -> None:
+    def _draw_bottom_bar(
+        self,
+        screen,
+        state: GameState,
+        active_player: int | None,
+        legal_actions,
+        width: int,
+        height: int,
+        panel_x: int,
+        bottom_h: int,
+        action_button_rects: dict[str, object],
+        trade_ui: dict[str, object] | None,
+        discard_ui: dict[str, object] | None,
+    ) -> None:
         bar_y = height - bottom_h
         self.pg.draw.rect(screen, (34, 34, 40), (0, bar_y, panel_x, bottom_h))
         if active_player is None:
@@ -326,6 +342,8 @@ class PygameRenderer:
             self._draw_resource_card(screen, x, bar_y + 44, card_w, card_h, resource, shown_amount)
             if trade_ui is not None:
                 trade_ui["hand_rects"][resource] = self.pg.Rect(x, bar_y + 44, card_w, card_h)
+            if discard_ui is not None:
+                discard_ui["hand_rects"][resource] = self.pg.Rect(x, bar_y + 44, card_w, card_h)
         labels = [("Trade", "trade"), ("Buy Dev Card", "dev"), ("Buy Road", "road"), ("Buy Settlement", "settlement"), ("Buy City", "city")]
         bx = start_x + 5 * (card_w + gap) + 18
         by = bar_y + 10
@@ -446,6 +464,40 @@ class PygameRenderer:
         screen.blit(self.small_font.render("Bank Trade", True, (250, 250, 250)), (right_x + 40, y + 53))
         screen.blit(self.small_font.render("Player Trade", True, (190, 190, 190)), (right_x + 36, y + 89))
         screen.blit(self.small_font.render("Cancel", True, (250, 250, 250)), (right_x + 57, y + 125))
+
+    def _draw_discard_overlay(
+        self,
+        screen,
+        state: GameState,
+        active_player: int | None,
+        panel_x: int,
+        height: int,
+        bottom_h: int,
+        discard_ui: dict[str, object],
+    ) -> None:
+        if active_player is None:
+            return
+        required = int(discard_ui.get("required", 0))
+        selected = discard_ui.get("selected", {})
+        selected_total = sum(int(selected.get(resource, 0)) for resource in ResourceType)
+        can_continue = selected_total == required
+        overlay_h = max(int(bottom_h * 0.82), 120)
+        y = height - bottom_h - overlay_h - 8
+        self.pg.draw.rect(screen, (45, 45, 52), (10, y, panel_x - 20, overlay_h), border_radius=8)
+        header = f"Kaarten discarden ({selected_total}/{required})"
+        screen.blit(self.font.render(header, True, (240, 240, 240)), (24, y + 10))
+        screen.blit(self.small_font.render("Klik kaart onder om toe te voegen, klik boven om te verwijderen.", True, (214, 214, 214)), (24, y + 36))
+
+        start_x = 24
+        for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
+            rect = self.pg.Rect(start_x + idx * 72, y + 58, 66, 42)
+            self._draw_resource_card(screen, rect.x, rect.y, rect.width, rect.height, resource, int(selected.get(resource, 0)), compact=True)
+            discard_ui["selected_rects"][resource] = rect
+
+        right_x = panel_x - 190
+        discard_ui["continue_button_rect"] = self.pg.Rect(right_x, y + 58, 160, 30)
+        self.pg.draw.rect(screen, (86, 112, 150) if can_continue else (70, 70, 72), discard_ui["continue_button_rect"], border_radius=4)
+        screen.blit(self.small_font.render("Doorgaan", True, (250, 250, 250)), (right_x + 50, y + 65))
 
     def _draw_resource_card(self, screen, x: int, y: int, width: int, height: int, resource: ResourceType, amount: int, *, compact: bool = False) -> None:
         color = {
