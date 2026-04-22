@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from .models.action import (
     Action,
+    BankTrade,
     BuildCity,
     BuildRoad,
     BuildSettlement,
@@ -30,6 +31,7 @@ SETTLEMENT_COST = {
     ResourceType.GRAIN: 1,
 }
 CITY_COST = {ResourceType.ORE: 3, ResourceType.GRAIN: 2}
+BANK_TRADE_RATE = 4
 
 TERRAIN_TO_RESOURCE = {
     TerrainType.HILLS: ResourceType.BRICK,
@@ -96,6 +98,7 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
         BuildSettlement(player_id=player_id, node_id=node_id) for node_id in _legal_settlement_nodes_main(state, player_id)
     )
     legal_actions.extend(BuildCity(player_id=player_id, node_id=node_id) for node_id in _legal_city_nodes(state, player_id))
+    legal_actions.extend(_legal_bank_trades(state, player_id))
     return legal_actions
 
 
@@ -123,6 +126,8 @@ def apply_action(state: GameState, action: Action) -> GameState:
         return _apply_build_settlement(state, action)
     if isinstance(action, BuildCity):
         return _apply_build_city(state, action)
+    if isinstance(action, BankTrade):
+        return _apply_bank_trade(state, action)
     if isinstance(action, EndTurn):
         return _apply_end_turn(state)
 
@@ -226,6 +231,25 @@ def _legal_city_nodes(state: GameState, player_id: PlayerId) -> list[NodeId]:
     if player.cities_left <= 0 or not _has_resources(player, CITY_COST):
         return []
     return [node_id for node_id, owner in state.placed.settlements.items() if owner == player_id]
+
+
+def _legal_bank_trades(state: GameState, player_id: PlayerId) -> list[BankTrade]:
+    player = state.players[player_id]
+    actions: list[BankTrade] = []
+    for offer_resource, amount in player.resources.items():
+        if amount < BANK_TRADE_RATE:
+            continue
+        for request_resource in ResourceType:
+            if request_resource == offer_resource:
+                continue
+            actions.append(
+                BankTrade(
+                    player_id=player_id,
+                    offer_resource=offer_resource,
+                    request_resource=request_resource,
+                )
+            )
+    return actions
 
 
 def _can_place_settlement_at_node(state: GameState, node_id: NodeId) -> bool:
@@ -438,6 +462,14 @@ def _apply_build_city(state: GameState, action: BuildCity) -> GameState:
         placed=replace(state.placed, settlements=settlements, cities=cities),
     )
     return _update_winner(next_state, action.player_id)
+
+
+def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
+    player = state.players[action.player_id]
+    resources = dict(player.resources)
+    resources[action.offer_resource] -= BANK_TRADE_RATE
+    resources[action.request_resource] += 1
+    return replace(state, players={**state.players, action.player_id: replace(player, resources=resources)})
 
 
 def _apply_end_turn(state: GameState) -> GameState:

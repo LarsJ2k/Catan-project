@@ -81,3 +81,33 @@ def test_describe_transition_logs_robber_no_victim_and_manual_prompt_and_steal()
     steal_after = replace(before_steal, players={1: p1, 2: p2}, turn=replace(before_steal.turn, step=TurnStep.ACTIONS))
     lines = app._describe_transition(before_steal, steal_after, "StealResource(player_id=1, target_player_id=2)")
     assert "P1 stole 1 Wheat from P2" in lines
+
+
+def test_describe_transition_logs_bank_trade() -> None:
+    app = PygameApp(DummyPygame())
+    before = make_state()
+    before = replace(
+        before,
+        turn=replace(before.turn, step=TurnStep.ACTIONS),
+        players={
+            1: replace(before.players[1], resources={**before.players[1].resources, ResourceType.BRICK: 4}),
+            2: replace(before.players[2], resources={**before.players[2].resources}),
+        },
+    )
+    after = replace(
+        before,
+        players={
+            1: replace(
+                before.players[1],
+                resources={
+                    **before.players[1].resources,
+                    ResourceType.BRICK: 0,
+                    ResourceType.GRAIN: 1,
+                },
+            ),
+            2: replace(before.players[2], resources={**before.players[2].resources}),
+        },
+    )
+
+    lines = app._describe_transition(before, after, "BankTrade(player_id=1, ...)")
+    assert "P1 traded 4 Brick for 1 Wheat" in lines

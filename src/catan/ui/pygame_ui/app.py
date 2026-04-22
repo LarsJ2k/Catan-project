@@ -4,7 +4,7 @@ from typing import Mapping
 
 from catan.controllers.human_controller import HumanController
 from catan.core.engine import get_legal_actions
-from catan.core.models.action import DiscardResources
+from catan.core.models.action import BankTrade, DiscardResources
 from catan.core.models.enums import ResourceType, TurnStep
 from catan.core.models.state import GameState
 from catan.runners.local_pygame_runner import LocalPygameRunner
@@ -40,6 +40,8 @@ class PygameApp:
         last_applied_action: str | None = None
         action_counter = 0
         discard_selection: dict[ResourceType, int] = {r: 0 for r in ResourceType}
+        bank_trade_offer: ResourceType | None = None
+        bank_trade_request: ResourceType | None = None
 
         running = True
         while running:
@@ -53,6 +55,10 @@ class PygameApp:
             if state.turn and state.turn.step == TurnStep.DISCARD and active_player is not None:
                 required = state.discard_requirements.get(active_player, 0)
                 selected_action_text = f"Discard {required}: " + ", ".join(f"{r.name}:{n}" for r, n in discard_selection.items() if n > 0)
+            elif state.turn and state.turn.step == TurnStep.ACTIONS:
+                offer = self._resource_name(bank_trade_offer) if bank_trade_offer is not None else "-"
+                request = self._resource_name(bank_trade_request) if bank_trade_request is not None else "-"
+                selected_action_text = f"Bank trade offer={offer}, request={request} (1-5 offer, Z-B request, Enter submit)"
 
             drawn = renderer.render(
                 screen,
@@ -90,6 +96,18 @@ class PygameApp:
                         selected_action_text = str(discard_action)
                         controllers[active_player].submit_action_intent(discard_action)
                     continue
+                if state.turn and state.turn.step == TurnStep.ACTIONS:
+                    bank_trade_action, bank_trade_offer, bank_trade_request = self._handle_bank_trade_event(
+                        event,
+                        active_player,
+                        legal,
+                        bank_trade_offer,
+                        bank_trade_request,
+                    )
+                    if bank_trade_action is not None:
+                        selected_action_text = str(bank_trade_action)
+                        controllers[active_player].submit_action_intent(bank_trade_action)
+                        continue
 
                 mapped = input_mapper.map_event(
                     event,
@@ -116,6 +134,9 @@ class PygameApp:
                     selected_action_text = None
                     if not (state.turn and state.turn.step == TurnStep.DISCARD):
                         discard_selection = {r: 0 for r in ResourceType}
+                    if state.turn is None or state.turn.step != TurnStep.ACTIONS:
+                        bank_trade_offer = None
+                        bank_trade_request = None
 
             self.pg.display.flip()
             clock.tick(30)
@@ -150,6 +171,42 @@ class PygameApp:
                 resources = tuple((resource, amount) for resource, amount in selection.items() if amount > 0)
                 return DiscardResources(player_id=player_id, resources=resources)
         return None
+
+    def _handle_bank_trade_event(
+        self,
+        event,
+        player_id: int,
+        legal_actions: list[object],
+        offer: ResourceType | None,
+        request: ResourceType | None,
+    ) -> tuple[BankTrade | None, ResourceType | None, ResourceType | None]:
+        if event.type != self.pg.KEYDOWN:
+            return None, offer, request
+        offer_mapping = {
+            self.pg.K_1: ResourceType.GRAIN,
+            self.pg.K_2: ResourceType.LUMBER,
+            self.pg.K_3: ResourceType.BRICK,
+            self.pg.K_4: ResourceType.ORE,
+            self.pg.K_5: ResourceType.WOOL,
+        }
+        request_mapping = {
+            self.pg.K_z: ResourceType.GRAIN,
+            self.pg.K_x: ResourceType.LUMBER,
+            self.pg.K_c: ResourceType.BRICK,
+            self.pg.K_v: ResourceType.ORE,
+            self.pg.K_b: ResourceType.WOOL,
+        }
+        if event.key in offer_mapping:
+            return None, offer_mapping[event.key], request
+        if event.key in request_mapping:
+            return None, offer, request_mapping[event.key]
+        if event.key in (self.pg.K_BACKSPACE, self.pg.K_DELETE):
+            return None, None, None
+        if event.key in (self.pg.K_RETURN, self.pg.K_KP_ENTER) and offer is not None and request is not None:
+            candidate = BankTrade(player_id=player_id, offer_resource=offer, request_resource=request)
+            if candidate in legal_actions:
+                return candidate, offer, request
+        return None, offer, request
 
     def _create_display_surface(self):
         if self.fullscreen:
@@ -198,7 +255,39 @@ class PygameApp:
             lines.append("No eligible victim to steal from")
         for thief, victim, resource in steals:
             lines.append(f"P{thief} stole 1 {self._resource_name(resource)} from P{victim}")
+        bank_trade_line = self._detect_bank_trade(before, after)
+        if bank_trade_line is not None:
+            lines.append(bank_trade_line)
         return lines
+
+    def _detect_bank_trade(self, before: GameState, after: GameState) -> str | None:
+        if before.turn is None:
+            return None
+        player_id = before.turn.current_player
+        if player_id not in before.players or player_id not in after.players:
+            return None
+
+        player_changes: dict[ResourceType, int] = {}
+        for resource in ResourceType:
+            delta = after.players[player_id].resources.get(resource, 0) - before.players[player_id].resources.get(resource, 0)
+            if delta != 0:
+                player_changes[resource] = delta
+
+        for other_id in before.players:
+            if other_id == player_id:
+                continue
+            for resource in ResourceType:
+                if before.players[other_id].resources.get(resource, 0) != after.players[other_id].resources.get(resource, 0):
+                    return None
+
+        if len(player_changes) != 2:
+            return None
+
+        offered = next((resource for resource, delta in player_changes.items() if delta == -4), None)
+        requested = next((resource for resource, delta in player_changes.items() if delta == 1), None)
+        if offered is None or requested is None:
+            return None
+        return f"P{player_id} traded 4 {self._resource_name(offered)} for 1 {self._resource_name(requested)}"
 
     def _resource_name(self, resource: ResourceType) -> str:
         names = {
