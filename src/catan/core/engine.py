@@ -11,6 +11,11 @@ from .models.action import (
     DiscardResources,
     EndTurn,
     MoveRobber,
+    ChooseTradePartner,
+    ProposePlayerTrade,
+    RejectTradeResponses,
+    RespondToTradeInterested,
+    RespondToTradePass,
     PlaceSetupRoad,
     PlaceSetupSettlement,
     RollDice,
@@ -18,8 +23,8 @@ from .models.action import (
     StealResource,
 )
 from .models.board import EdgeId, NodeId, PlayerId, TileId
-from .models.enums import GamePhase, ResourceType, TerrainType, TurnStep
-from .models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, SetupState, TurnState
+from .models.enums import GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
+from .models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, PlayerTradeState, SetupState, TurnState
 from .observer import DebugObservation, Observation, PlayerObservation, PublicPlayerView
 from .rng import next_u32, roll_two_d6
 
@@ -85,6 +90,9 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
     if acting_player != player_id:
         return []
 
+    if state.player_trade is not None:
+        return _get_player_trade_legal_actions(state, player_id)
+
     if state.turn.step == TurnStep.ROLL:
         return [RollDice(player_id=player_id)]
     if state.turn.step == TurnStep.ROBBER_MOVE:
@@ -128,6 +136,16 @@ def apply_action(state: GameState, action: Action) -> GameState:
         return _apply_build_city(state, action)
     if isinstance(action, BankTrade):
         return _apply_bank_trade(state, action)
+    if isinstance(action, ProposePlayerTrade):
+        return _apply_propose_player_trade(state, action)
+    if isinstance(action, RespondToTradeInterested):
+        return _apply_respond_to_trade(state, action, interested=True)
+    if isinstance(action, RespondToTradePass):
+        return _apply_respond_to_trade(state, action, interested=False)
+    if isinstance(action, ChooseTradePartner):
+        return _apply_choose_trade_partner(state, action)
+    if isinstance(action, RejectTradeResponses):
+        return _apply_reject_trade_responses(state, action)
     if isinstance(action, EndTurn):
         return _apply_end_turn(state)
 
@@ -163,6 +181,16 @@ def get_observation(state: GameState, player_id: PlayerId, *, debug: bool = Fals
 
 
 def _is_legal_action(state: GameState, action: Action) -> bool:
+    if isinstance(action, ProposePlayerTrade):
+        return _is_legal_propose_player_trade(state, action)
+    if isinstance(action, RespondToTradeInterested):
+        return _is_legal_trade_response(state, action.player_id)
+    if isinstance(action, RespondToTradePass):
+        return _is_legal_trade_response(state, action.player_id)
+    if isinstance(action, ChooseTradePartner):
+        return _is_legal_choose_trade_partner(state, action)
+    if isinstance(action, RejectTradeResponses):
+        return _is_legal_reject_trade_responses(state, action)
     if isinstance(action, DiscardResources):
         return _is_legal_discard_action(state, action)
     if isinstance(action, MoveRobber):
@@ -253,6 +281,64 @@ def _legal_bank_trades(state: GameState, player_id: PlayerId) -> list[BankTrade]
                 )
             )
     return actions
+
+
+def _get_player_trade_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
+    trade = state.player_trade
+    if trade is None:
+        return []
+    if trade.phase == PlayerTradePhase.RESPONSES:
+        return [RespondToTradeInterested(player_id=player_id), RespondToTradePass(player_id=player_id)]
+    if trade.phase == PlayerTradePhase.PARTNER_SELECTION:
+        actions: list[Action] = [RejectTradeResponses(player_id=player_id)]
+        actions.extend(ChooseTradePartner(player_id=player_id, partner_player_id=pid) for pid in trade.interested_responders)
+        return actions
+    return []
+
+
+def _is_legal_propose_player_trade(state: GameState, action: ProposePlayerTrade) -> bool:
+    if state.turn is None or state.turn.step != TurnStep.ACTIONS or state.player_trade is not None:
+        return False
+    if action.player_id != state.turn.current_player:
+        return False
+    offered = _bundle_to_dict(action.offered_resources)
+    requested = _bundle_to_dict(action.requested_resources)
+    if not _is_valid_bundle(offered) or not _is_valid_bundle(requested):
+        return False
+    return _player_has_bundle(state.players[action.player_id], offered)
+
+
+def _is_legal_trade_response(state: GameState, player_id: PlayerId) -> bool:
+    trade = state.player_trade
+    if state.turn is None or trade is None or state.turn.step != TurnStep.PLAYER_TRADE:
+        return False
+    if trade.phase != PlayerTradePhase.RESPONSES:
+        return False
+    if state.turn.priority_player != player_id:
+        return False
+    return player_id in trade.eligible_responders
+
+
+def _is_legal_choose_trade_partner(state: GameState, action: ChooseTradePartner) -> bool:
+    trade = state.player_trade
+    if state.turn is None or trade is None or state.turn.step != TurnStep.PLAYER_TRADE:
+        return False
+    if trade.phase != PlayerTradePhase.PARTNER_SELECTION:
+        return False
+    if action.player_id != trade.proposer_player_id or state.turn.priority_player != trade.proposer_player_id:
+        return False
+    if action.partner_player_id not in trade.interested_responders:
+        return False
+    proposer_bundle = _bundle_to_dict(trade.offered_resources)
+    requested_bundle = _bundle_to_dict(trade.requested_resources)
+    return _player_has_bundle(state.players[action.player_id], proposer_bundle) and _player_has_bundle(state.players[action.partner_player_id], requested_bundle)
+
+
+def _is_legal_reject_trade_responses(state: GameState, action: RejectTradeResponses) -> bool:
+    trade = state.player_trade
+    if state.turn is None or trade is None or state.turn.step != TurnStep.PLAYER_TRADE:
+        return False
+    return trade.phase == PlayerTradePhase.PARTNER_SELECTION and action.player_id == trade.proposer_player_id
 
 
 def _can_place_settlement_at_node(state: GameState, node_id: NodeId) -> bool:
@@ -475,6 +561,78 @@ def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
     return replace(state, players={**state.players, action.player_id: replace(player, resources=resources)})
 
 
+def _apply_propose_player_trade(state: GameState, action: ProposePlayerTrade) -> GameState:
+    order = _player_order_after(state, action.player_id)
+    requested_bundle = _bundle_to_dict(action.requested_resources)
+    eligible = tuple(pid for pid in order if _player_has_bundle(state.players[pid], requested_bundle))
+    trade = PlayerTradeState(
+        proposer_player_id=action.player_id,
+        offered_resources=_normalize_bundle(action.offered_resources),
+        requested_resources=_normalize_bundle(action.requested_resources),
+        responder_order=tuple(order),
+        current_responder_index=0,
+        eligible_responders=eligible,
+        interested_responders=tuple(),
+        phase=PlayerTradePhase.RESPONSES,
+    )
+    return _advance_trade_flow(replace(state, player_trade=trade, turn=replace(state.turn, step=TurnStep.PLAYER_TRADE)))
+
+
+def _apply_respond_to_trade(state: GameState, action: RespondToTradeInterested | RespondToTradePass, *, interested: bool) -> GameState:
+    trade = state.player_trade
+    if trade is None:
+        return state
+    interested_responders = trade.interested_responders
+    if interested:
+        interested_responders = (*interested_responders, action.player_id)
+    next_trade = replace(trade, current_responder_index=trade.current_responder_index + 1, interested_responders=interested_responders)
+    return _advance_trade_flow(replace(state, player_trade=next_trade))
+
+
+def _apply_choose_trade_partner(state: GameState, action: ChooseTradePartner) -> GameState:
+    trade = state.player_trade
+    if trade is None:
+        return state
+    proposer_bundle = _bundle_to_dict(trade.offered_resources)
+    requested_bundle = _bundle_to_dict(trade.requested_resources)
+    proposer = _apply_resource_bundle_delta(state.players[action.player_id], proposer_bundle, requested_bundle)
+    partner = _apply_resource_bundle_delta(state.players[action.partner_player_id], requested_bundle, proposer_bundle)
+    return replace(
+        state,
+        players={
+            **state.players,
+            action.player_id: proposer,
+            action.partner_player_id: partner,
+        },
+        player_trade=None,
+        turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
+    )
+
+
+def _apply_reject_trade_responses(state: GameState, action: RejectTradeResponses) -> GameState:
+    return replace(state, player_trade=None, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+
+
+def _advance_trade_flow(state: GameState) -> GameState:
+    trade = state.player_trade
+    if trade is None:
+        return state
+    next_index = trade.current_responder_index
+    while next_index < len(trade.responder_order) and trade.responder_order[next_index] not in trade.eligible_responders:
+        next_index += 1
+    trade = replace(trade, current_responder_index=next_index)
+    if next_index >= len(trade.responder_order):
+        if trade.interested_responders:
+            return replace(
+                state,
+                player_trade=replace(trade, phase=PlayerTradePhase.PARTNER_SELECTION),
+                turn=replace(state.turn, step=TurnStep.PLAYER_TRADE, priority_player=trade.proposer_player_id),
+            )
+        return replace(state, player_trade=None, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+    responder = trade.responder_order[next_index]
+    return replace(state, player_trade=trade, turn=replace(state.turn, step=TurnStep.PLAYER_TRADE, priority_player=responder))
+
+
 def _best_trade_rate_for_offer(
     state: GameState, player_id: PlayerId, offer_resource: ResourceType
 ) -> tuple[int, ResourceType | None]:
@@ -486,6 +644,42 @@ def _best_trade_rate_for_offer(
     if has_generic:
         return 3, None
     return BANK_TRADE_RATE, None
+
+
+def _bundle_to_dict(bundle: tuple[tuple[ResourceType, int], ...]) -> dict[ResourceType, int]:
+    result = {resource: 0 for resource in ResourceType}
+    for resource, amount in bundle:
+        result[resource] += amount
+    return result
+
+
+def _normalize_bundle(bundle: tuple[tuple[ResourceType, int], ...]) -> tuple[tuple[ResourceType, int], ...]:
+    merged = _bundle_to_dict(bundle)
+    return tuple((resource, amount) for resource, amount in merged.items() if amount > 0)
+
+
+def _is_valid_bundle(bundle: dict[ResourceType, int]) -> bool:
+    return sum(bundle.values()) > 0 and all(amount >= 0 for amount in bundle.values())
+
+
+def _player_has_bundle(player: PlayerState, bundle: dict[ResourceType, int]) -> bool:
+    return all(player.resources.get(resource, 0) >= amount for resource, amount in bundle.items())
+
+
+def _apply_resource_bundle_delta(player: PlayerState, pay_bundle: dict[ResourceType, int], gain_bundle: dict[ResourceType, int]) -> PlayerState:
+    resources = dict(player.resources)
+    for resource, amount in pay_bundle.items():
+        resources[resource] -= amount
+    for resource, amount in gain_bundle.items():
+        resources[resource] += amount
+    return replace(player, resources=resources)
+
+
+def _player_order_after(state: GameState, proposer_id: PlayerId) -> list[PlayerId]:
+    order = sorted(state.players.keys())
+    idx = order.index(proposer_id)
+    rotated = order[idx + 1 :] + order[:idx]
+    return rotated
 
 
 def _accessible_ports(state: GameState, player_id: PlayerId):

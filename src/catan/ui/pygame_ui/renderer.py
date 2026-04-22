@@ -413,6 +413,7 @@ class PygameRenderer:
             TurnStep.ROBBER_MOVE: f"P{active_player}: zet de struikrover op een tile",
             TurnStep.ROBBER_STEAL: f"P{active_player}: kies een tegenstander om van te stelen",
             TurnStep.ACTIONS: f"P{active_player}: bouw, trade of eindig je beurt",
+            TurnStep.PLAYER_TRADE: f"P{active_player}: reageer op trade",
         }
         return self._player_color(active_player), step_labels.get(state.turn.step, f"Speler P{active_player} aan zet")
 
@@ -423,6 +424,10 @@ class PygameRenderer:
 
     def _draw_trade_overlay(self, screen, state: GameState, active_player: int | None, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         if active_player is None:
+            return
+        mode = trade_ui.get("mode", "draft")
+        if mode != "draft":
+            self._draw_player_trade_overlay(screen, panel_x, height, bottom_h, trade_ui)
             return
         overlay_h = max(int(bottom_h * 1.14), 220)
         y = height - bottom_h - overlay_h - 8
@@ -459,11 +464,49 @@ class PygameRenderer:
         trade_ui["player_button_rect"] = self.pg.Rect(right_x, y + 82, 160, 30)
         trade_ui["cancel_button_rect"] = self.pg.Rect(right_x, y + 118, 160, 30)
         self.pg.draw.rect(screen, (78, 110, 95) if valid else (70, 70, 72), trade_ui["bank_button_rect"], border_radius=4)
-        self.pg.draw.rect(screen, (70, 70, 72), trade_ui["player_button_rect"], border_radius=4)
+        self.pg.draw.rect(screen, (78, 110, 95) if trade_ui.get("valid_player_trade", False) else (70, 70, 72), trade_ui["player_button_rect"], border_radius=4)
         self.pg.draw.rect(screen, (92, 70, 70), trade_ui["cancel_button_rect"], border_radius=4)
         screen.blit(self.small_font.render("Bank Trade", True, (250, 250, 250)), (right_x + 40, y + 53))
         screen.blit(self.small_font.render("Player Trade", True, (190, 190, 190)), (right_x + 36, y + 89))
         screen.blit(self.small_font.render("Cancel", True, (250, 250, 250)), (right_x + 57, y + 125))
+
+    def _draw_player_trade_overlay(self, screen, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
+        overlay_h = max(int(bottom_h * 0.92), 165)
+        y = height - bottom_h - overlay_h - 8
+        self.pg.draw.rect(screen, (45, 45, 52), (10, y, panel_x - 20, overlay_h), border_radius=8)
+        offer = trade_ui.get("offer", {})
+        request = trade_ui.get("request", {})
+        offer_txt = ", ".join(f"{n} {self._resource_name(r)}" for r, n in offer.items() if n > 0)
+        request_txt = ", ".join(f"{n} {self._resource_name(r)}" for r, n in request.items() if n > 0)
+        screen.blit(self.font.render("Player Trade", True, (240, 240, 240)), (24, y + 10))
+        screen.blit(self.small_font.render(f"Offer: {offer_txt}", True, (214, 214, 214)), (24, y + 42))
+        screen.blit(self.small_font.render(f"Request: {request_txt}", True, (214, 214, 214)), (24, y + 62))
+
+        if trade_ui.get("mode") == "response":
+            responder = trade_ui.get("current_responder")
+            screen.blit(self.small_font.render(f"Current responder: P{responder}", True, (214, 214, 214)), (24, y + 86))
+            interested_rect = self.pg.Rect(24, y + 110, 170, 34)
+            pass_rect = self.pg.Rect(204, y + 110, 170, 34)
+            self.pg.draw.rect(screen, (78, 110, 95), interested_rect, border_radius=4)
+            self.pg.draw.rect(screen, (90, 90, 94), pass_rect, border_radius=4)
+            screen.blit(self.small_font.render("Interested", True, (245, 245, 245)), (65, y + 120))
+            screen.blit(self.small_font.render("Pass", True, (245, 245, 245)), (267, y + 120))
+            trade_ui["response_interested_rect"] = interested_rect
+            trade_ui["response_pass_rect"] = pass_rect
+            return
+
+        screen.blit(self.small_font.render("Interested players:", True, (214, 214, 214)), (24, y + 86))
+        y_cursor = y + 108
+        for player_id in trade_ui.get("interested_responders", ()):
+            rect = self.pg.Rect(24, y_cursor, 210, 28)
+            self.pg.draw.rect(screen, (78, 110, 95), rect, border_radius=4)
+            screen.blit(self.small_font.render(f"Trade with P{player_id}", True, (245, 245, 245)), (40, y_cursor + 8))
+            trade_ui["selection_rects"][player_id] = rect
+            y_cursor += 34
+        reject_rect = self.pg.Rect(246, y + 108, 170, 30)
+        self.pg.draw.rect(screen, (92, 70, 70), reject_rect, border_radius=4)
+        screen.blit(self.small_font.render("Reject all", True, (250, 250, 250)), (293, y + 116))
+        trade_ui["reject_all_rect"] = reject_rect
 
     def _draw_discard_overlay(
         self,
@@ -526,7 +569,7 @@ class PygameRenderer:
 
     def _is_action_enabled(self, key: str, legal_actions, state: GameState, active_player: int | None) -> bool:
         if key == "trade":
-            return any(isinstance(a, BankTrade) for a in legal_actions)
+            return state.turn is not None and state.turn.step == TurnStep.ACTIONS and state.player_trade is None
         if key == "road":
             return any(isinstance(a, BuildRoad) for a in legal_actions)
         if key == "settlement":

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .board import Board, EdgeId, NodeId, PlayerId, TileId
-from .enums import GamePhase, ResourceType, TurnStep
+from .enums import GamePhase, PlayerTradePhase, ResourceType, TurnStep
 
 
 @dataclass
@@ -42,6 +42,18 @@ class PlacedPieces:
     cities: dict[NodeId, PlayerId] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PlayerTradeState:
+    proposer_player_id: PlayerId
+    offered_resources: tuple[tuple[ResourceType, int], ...]
+    requested_resources: tuple[tuple[ResourceType, int], ...]
+    responder_order: tuple[PlayerId, ...]
+    current_responder_index: int
+    eligible_responders: tuple[PlayerId, ...]
+    interested_responders: tuple[PlayerId, ...]
+    phase: PlayerTradePhase
+
+
 @dataclass
 class GameState:
     board: Board
@@ -54,6 +66,7 @@ class GameState:
     rng_state: int = 0
     robber_tile_id: Optional[TileId] = None
     discard_requirements: dict[PlayerId, int] = field(default_factory=dict)
+    player_trade: PlayerTradeState | None = None
 
 
 @dataclass(frozen=True)

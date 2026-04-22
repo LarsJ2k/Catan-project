@@ -4,8 +4,21 @@ from typing import Mapping
 
 from catan.controllers.human_controller import HumanController
 from catan.core.engine import get_legal_actions
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, DiscardResources, EndTurn, RollDice
-from catan.core.models.enums import ResourceType, TurnStep
+from catan.core.models.action import (
+    BankTrade,
+    BuildCity,
+    BuildRoad,
+    BuildSettlement,
+    ChooseTradePartner,
+    DiscardResources,
+    EndTurn,
+    ProposePlayerTrade,
+    RejectTradeResponses,
+    RespondToTradeInterested,
+    RespondToTradePass,
+    RollDice,
+)
+from catan.core.models.enums import PlayerTradePhase, ResourceType, TurnStep
 from catan.core.models.state import GameState
 from catan.runners.local_pygame_runner import LocalPygameRunner
 
@@ -62,13 +75,30 @@ class PygameApp:
                 selected_action_text = f"Discard {required}: " + ", ".join(f"{r.name}:{n}" for r, n in discard_selection.items() if n > 0)
             elif state.turn and state.turn.step == TurnStep.ACTIONS and trade_window_open:
                 selected_action_text = self._trade_draft_status_text(trade_draft_offered, trade_draft_requested, legal, active_player)
+            elif state.player_trade is not None:
+                selected_action_text = self._player_trade_status_text(state)
 
             trade_ui = None
-            if trade_window_open:
+            if state.player_trade is not None:
                 trade_ui = {
+                    "mode": "response" if state.player_trade.phase == PlayerTradePhase.RESPONSES else "selection",
+                    "offer": dict(state.player_trade.offered_resources),
+                    "request": dict(state.player_trade.requested_resources),
+                    "current_responder": self._current_trade_responder(state),
+                    "eligible_responders": set(state.player_trade.eligible_responders),
+                    "interested_responders": tuple(state.player_trade.interested_responders),
+                    "response_interested_rect": None,
+                    "response_pass_rect": None,
+                    "selection_rects": {},
+                    "reject_all_rect": None,
+                }
+            elif trade_window_open:
+                trade_ui = {
+                    "mode": "draft",
                     "offer": trade_draft_offered,
                     "request": trade_draft_requested,
                     "valid_bank_trade": self._is_valid_bank_trade_draft(legal, active_player, trade_draft_offered, trade_draft_requested),
+                    "valid_player_trade": self._is_valid_player_trade_draft(state, active_player, trade_draft_offered, trade_draft_requested),
                     "bank_supply_rects": {},
                     "request_rects": {},
                     "offer_rects": {},
@@ -181,6 +211,12 @@ class PygameApp:
                             trade_window_open = False
                             trade_draft_offered = {r: 0 for r in ResourceType}
                             trade_draft_requested = {r: 0 for r in ResourceType}
+                            continue
+                    if state.player_trade is not None and trade_ui is not None:
+                        player_trade_action = self._handle_player_trade_overlay_click(event.pos, trade_ui, state, active_player)
+                        if player_trade_action is not None:
+                            selected_action_text = str(player_trade_action)
+                            controllers[active_player].submit_action_intent(player_trade_action)
                             continue
 
                 if state.turn and state.turn.step == TurnStep.DISCARD:
@@ -381,7 +417,7 @@ class PygameApp:
         trade_window_open: bool,
     ) -> object | str | None:
         if button_rects.get("trade") and button_rects["trade"].collidepoint(pos):
-            if any(isinstance(a, BankTrade) for a in legal_actions):
+            if state.turn is not None and state.turn.step == TurnStep.ACTIONS and state.player_trade is None:
                 return "trade_open"
         if button_rects.get("dev") and button_rects["dev"].collidepoint(pos):
             if self._can_afford_cost(state, active_player, {ResourceType.ORE: 1, ResourceType.GRAIN: 1, ResourceType.WOOL: 1}):
@@ -422,7 +458,7 @@ class PygameApp:
         active_player: int,
         offered: dict[ResourceType, int],
         requested: dict[ResourceType, int],
-    ) -> BankTrade | str | None:
+    ) -> BankTrade | ProposePlayerTrade | str | None:
         for resource, rect in trade_ui["bank_supply_rects"].items():
             if rect.collidepoint(pos):
                 requested[resource] += 1
@@ -447,6 +483,35 @@ class PygameApp:
             return "cancel"
         if trade_ui["bank_button_rect"].collidepoint(pos):
             return self._to_bank_trade_action(legal_actions, active_player, offered, requested)
+        if trade_ui["player_button_rect"].collidepoint(pos):
+            if self._is_valid_player_trade_draft(state, active_player, offered, requested):
+                return ProposePlayerTrade(
+                    player_id=active_player,
+                    offered_resources=tuple((resource, amount) for resource, amount in offered.items() if amount > 0),
+                    requested_resources=tuple((resource, amount) for resource, amount in requested.items() if amount > 0),
+                )
+        return None
+
+    def _handle_player_trade_overlay_click(
+        self,
+        pos: tuple[int, int],
+        trade_ui: dict[str, object],
+        state: GameState,
+        active_player: int,
+    ) -> RespondToTradeInterested | RespondToTradePass | ChooseTradePartner | RejectTradeResponses | None:
+        mode = trade_ui.get("mode")
+        if mode == "response":
+            if trade_ui["response_interested_rect"].collidepoint(pos):
+                return RespondToTradeInterested(player_id=active_player)
+            if trade_ui["response_pass_rect"].collidepoint(pos):
+                return RespondToTradePass(player_id=active_player)
+            return None
+        if mode == "selection":
+            for player_id, rect in trade_ui["selection_rects"].items():
+                if rect.collidepoint(pos):
+                    return ChooseTradePartner(player_id=active_player, partner_player_id=player_id)
+            if trade_ui["reject_all_rect"].collidepoint(pos):
+                return RejectTradeResponses(player_id=active_player)
         return None
 
     def _to_bank_trade_action(
@@ -483,6 +548,41 @@ class PygameApp:
         req_txt = ", ".join(f"{self._resource_name(r)}:{n}" for r, n in requested.items() if n > 0) or "-"
         valid = self._is_valid_bank_trade_draft(legal_actions, player_id, offered, requested)
         return f"Trade draft offer=[{offer_txt}] request=[{req_txt}] bank_valid={'yes' if valid else 'no'}"
+
+    def _is_valid_player_trade_draft(
+        self,
+        state: GameState,
+        player_id: int,
+        offered: dict[ResourceType, int],
+        requested: dict[ResourceType, int],
+    ) -> bool:
+        if state.turn is None or state.turn.current_player != player_id:
+            return False
+        offered_items = [(r, n) for r, n in offered.items() if n > 0]
+        requested_items = [(r, n) for r, n in requested.items() if n > 0]
+        if not offered_items or not requested_items:
+            return False
+        return all(state.players[player_id].resources.get(resource, 0) >= amount for resource, amount in offered_items)
+
+    def _current_trade_responder(self, state: GameState) -> int | None:
+        if state.player_trade is None:
+            return None
+        idx = state.player_trade.current_responder_index
+        if idx >= len(state.player_trade.responder_order):
+            return None
+        return state.player_trade.responder_order[idx]
+
+    def _player_trade_status_text(self, state: GameState) -> str:
+        trade = state.player_trade
+        if trade is None:
+            return ""
+        offer_txt = ", ".join(f"{self._resource_name(r)}:{n}" for r, n in trade.offered_resources)
+        request_txt = ", ".join(f"{self._resource_name(r)}:{n}" for r, n in trade.requested_resources)
+        if trade.phase == PlayerTradePhase.RESPONSES:
+            responder = self._current_trade_responder(state)
+            return f"Player trade response: offer=[{offer_txt}] request=[{request_txt}] waiting=P{responder}"
+        interested = ", ".join(f"P{pid}" for pid in trade.interested_responders)
+        return f"Player trade select partner: interested=[{interested}]"
 
     def _can_afford_cost(self, state: GameState, player_id: int, cost: dict[ResourceType, int]) -> bool:
         resources = state.players[player_id].resources
@@ -522,7 +622,80 @@ class PygameApp:
         bank_trade_line = self._detect_bank_trade(before, after)
         if bank_trade_line is not None:
             lines.append(bank_trade_line)
+        lines.extend(self._detect_player_trade_lines(before, after))
         return lines
+
+    def _detect_player_trade_lines(self, before: GameState, after: GameState) -> list[str]:
+        lines: list[str] = []
+        before_trade = before.player_trade
+        after_trade = after.player_trade
+        if before_trade is None and after_trade is not None:
+            offer = ", ".join(f"{n} {self._resource_name(r)}" for r, n in after_trade.offered_resources)
+            request = ", ".join(f"{n} {self._resource_name(r)}" for r, n in after_trade.requested_resources)
+            lines.append(f"P{after_trade.proposer_player_id} offered all players: {offer} for {request}")
+            responder = self._current_trade_responder(after)
+            if responder is not None:
+                for pid in after_trade.responder_order[: after_trade.current_responder_index]:
+                    if pid not in after_trade.eligible_responders:
+                        lines.append(f"P{pid} cannot accept and is skipped")
+            return lines
+        if before_trade is None:
+            return lines
+        if after_trade is None:
+            if before_trade.phase == PlayerTradePhase.RESPONSES and not before_trade.interested_responders:
+                lines.append("No players were interested")
+            elif before_trade.phase == PlayerTradePhase.PARTNER_SELECTION:
+                lines.append(f"P{before_trade.proposer_player_id} rejected all trade responses")
+            trade_line = self._detect_player_trade_execution(before, after, before_trade.proposer_player_id)
+            if trade_line is not None:
+                lines.append(trade_line)
+            return lines
+
+        if before_trade.phase == PlayerTradePhase.RESPONSES and after_trade.phase == PlayerTradePhase.RESPONSES:
+            responder = before_trade.responder_order[before_trade.current_responder_index]
+            if responder in after_trade.interested_responders:
+                lines.append(f"P{responder} is interested")
+            else:
+                lines.append(f"P{responder} is not interested")
+
+        if before_trade.phase == PlayerTradePhase.RESPONSES and after_trade.phase == PlayerTradePhase.PARTNER_SELECTION:
+            responder = before_trade.responder_order[before_trade.current_responder_index]
+            if responder in after_trade.interested_responders:
+                lines.append(f"P{responder} is interested")
+            else:
+                lines.append(f"P{responder} is not interested")
+
+        if before_trade.phase == PlayerTradePhase.PARTNER_SELECTION and after_trade is None:
+            partner = self._find_trade_partner_from_delta(before, after, before_trade.proposer_player_id)
+            if partner is not None:
+                lines.append(f"P{before_trade.proposer_player_id} chose to trade with P{partner}")
+        return lines
+
+    def _detect_player_trade_execution(self, before: GameState, after: GameState, proposer_id: int) -> str | None:
+        partner = self._find_trade_partner_from_delta(before, after, proposer_id)
+        if partner is None:
+            return None
+        offer_parts = []
+        request_parts = []
+        for resource in ResourceType:
+            delta = after.players[proposer_id].resources.get(resource, 0) - before.players[proposer_id].resources.get(resource, 0)
+            if delta < 0:
+                offer_parts.append(f"{-delta} {self._resource_name(resource)}")
+            elif delta > 0:
+                request_parts.append(f"{delta} {self._resource_name(resource)}")
+        offer_txt = ", ".join(offer_parts)
+        request_txt = ", ".join(request_parts)
+        return f"P{proposer_id} traded {offer_txt} for {request_txt} with P{partner}"
+
+    def _find_trade_partner_from_delta(self, before: GameState, after: GameState, proposer_id: int) -> int | None:
+        changed_others = [
+            pid
+            for pid in before.players
+            if pid != proposer_id and any(before.players[pid].resources.get(resource, 0) != after.players[pid].resources.get(resource, 0) for resource in ResourceType)
+        ]
+        if len(changed_others) != 1:
+            return None
+        return changed_others[0]
 
     def _detect_bank_trade(self, before: GameState, after: GameState) -> str | None:
         if before.turn is None:
