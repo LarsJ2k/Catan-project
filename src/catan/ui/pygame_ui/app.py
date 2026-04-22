@@ -4,7 +4,8 @@ from typing import Mapping
 
 from catan.controllers.human_controller import HumanController
 from catan.core.engine import get_legal_actions
-from catan.core.models.enums import ResourceType
+from catan.core.models.action import DiscardResources
+from catan.core.models.enums import ResourceType, TurnStep
 from catan.core.models.state import GameState
 from catan.runners.local_pygame_runner import LocalPygameRunner
 
@@ -38,6 +39,7 @@ class PygameApp:
         selected_action_text: str | None = None
         last_applied_action: str | None = None
         action_counter = 0
+        discard_selection: dict[ResourceType, int] = {r: 0 for r in ResourceType}
 
         running = True
         while running:
@@ -47,6 +49,11 @@ class PygameApp:
             active_player = self._active_player(state)
             legal = get_legal_actions(state, active_player) if active_player is not None else []
             hover = input_mapper.get_hover_target(self.pg.mouse.get_pos(), layout) if hasattr(self.pg, "mouse") else HoverTarget()
+
+            if state.turn and state.turn.step == TurnStep.DISCARD and active_player is not None:
+                required = state.discard_requirements.get(active_player, 0)
+                selected_action_text = f"Discard {required}: " + ", ".join(f"{r.name}:{n}" for r, n in discard_selection.items() if n > 0)
+
             drawn = renderer.render(
                 screen,
                 state,
@@ -77,6 +84,13 @@ class PygameApp:
                 if active_player is None or active_player not in controllers:
                     continue
 
+                if state.turn and state.turn.step == TurnStep.DISCARD:
+                    discard_action = self._handle_discard_event(event, state, active_player, discard_selection)
+                    if discard_action is not None:
+                        selected_action_text = str(discard_action)
+                        controllers[active_player].submit_action_intent(discard_action)
+                    continue
+
                 mapped = input_mapper.map_event(
                     event,
                     legal_actions=legal,
@@ -99,12 +113,42 @@ class PygameApp:
                     for line in self._describe_transition(before, state, last_applied_action):
                         event_log.append(f"[{action_counter:03d}] {line}")
                     selected_action_text = None
+                    if not (state.turn and state.turn.step == TurnStep.DISCARD):
+                        discard_selection = {r: 0 for r in ResourceType}
 
             self.pg.display.flip()
             clock.tick(30)
 
         self.pg.quit()
         return state
+
+    def _handle_discard_event(self, event, state: GameState, player_id: int, selection: dict[ResourceType, int]):
+        if event.type != self.pg.KEYDOWN:
+            return None
+        mapping = {
+            self.pg.K_1: ResourceType.GRAIN,
+            self.pg.K_2: ResourceType.LUMBER,
+            self.pg.K_3: ResourceType.BRICK,
+            self.pg.K_4: ResourceType.ORE,
+            self.pg.K_5: ResourceType.WOOL,
+        }
+        required = state.discard_requirements.get(player_id, 0)
+
+        if event.key in mapping:
+            resource = mapping[event.key]
+            player_have = state.players[player_id].resources.get(resource, 0)
+            if selection[resource] < player_have and sum(selection.values()) < required:
+                selection[resource] += 1
+            return None
+        if event.key == self.pg.K_BACKSPACE:
+            for resource in ResourceType:
+                selection[resource] = 0
+            return None
+        if event.key in (self.pg.K_RETURN, self.pg.K_KP_ENTER):
+            if sum(selection.values()) == required:
+                resources = tuple((resource, amount) for resource, amount in selection.items() if amount > 0)
+                return DiscardResources(player_id=player_id, resources=resources)
+        return None
 
     def _create_display_surface(self):
         if self.fullscreen:
@@ -131,6 +175,9 @@ class PygameApp:
             total = after_roll[0] + after_roll[1]
             lines.append(f"Dice rolled {after_roll[0]} + {after_roll[1]} = {total}")
 
+        if before.robber_tile_id != after.robber_tile_id:
+            lines.append(f"Robber moved to tile {after.robber_tile_id}")
+
         for pid in sorted(after.players.keys()):
             for resource in [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]:
                 before_amount = before.players[pid].resources.get(resource, 0)
@@ -138,7 +185,6 @@ class PygameApp:
                 delta = after_amount - before_amount
                 if delta > 0:
                     lines.append(f"P{pid} received {delta} {self._resource_name(resource)}")
-
         return lines
 
     def _resource_name(self, resource: ResourceType) -> str:
@@ -152,6 +198,8 @@ class PygameApp:
         return names[resource]
 
     def _active_player(self, state: GameState) -> int | None:
+        if state.turn is not None and state.turn.priority_player is not None:
+            return state.turn.priority_player
         if state.turn is not None:
             return state.turn.current_player
         return state.setup.pending_settlement_player or state.setup.pending_road_player

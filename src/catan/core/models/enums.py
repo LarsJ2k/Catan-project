@@ -29,4 +29,7 @@ class GamePhase(Enum):
 
 class TurnStep(Enum):
     ROLL = auto()
+    DISCARD = auto()
+    ROBBER_MOVE = auto()
+    ROBBER_STEAL = auto()
     ACTIONS = auto()

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .board import Board, EdgeId, NodeId, PlayerId
+from .board import Board, EdgeId, NodeId, PlayerId, TileId
 from .enums import GamePhase, ResourceType, TurnStep
 
 
@@ -32,6 +32,7 @@ class TurnState:
     current_player: PlayerId
     step: TurnStep = TurnStep.ROLL
     last_roll: Optional[tuple[int, int]] = None
+    priority_player: Optional[PlayerId] = None
 
 
 @dataclass
@@ -51,6 +52,8 @@ class GameState:
     placed: PlacedPieces
     winner: Optional[PlayerId] = None
     rng_state: int = 0
+    robber_tile_id: Optional[TileId] = None
+    discard_requirements: dict[PlayerId, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -12,9 +12,11 @@ class HeadlessRunner:
         steps = 0
         current = state
         while not is_terminal(current) and steps < max_steps:
-            if current.turn is None:
+            if current.turn is None and current.phase.name.startswith("SETUP") is False:
                 break
-            player_id = current.turn.current_player
+            player_id = self._active_player(current)
+            if player_id is None:
+                break
             controller = controllers[player_id]
             legal = get_legal_actions(current, player_id)
             observation = get_observation(current, player_id)
@@ -24,3 +26,10 @@ class HeadlessRunner:
             current = apply_action(current, action)
             steps += 1
         return current
+
+    def _active_player(self, state: GameState) -> int | None:
+        if state.turn is not None and state.turn.priority_player is not None:
+            return state.turn.priority_player
+        if state.turn is not None:
+            return state.turn.current_player
+        return state.setup.pending_settlement_player or state.setup.pending_road_player

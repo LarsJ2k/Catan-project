@@ -38,6 +38,8 @@ class DebugTextRunner:
         return current
 
     def _active_player(self, state: GameState) -> int | None:
+        if state.turn is not None and state.turn.priority_player is not None:
+            return state.turn.priority_player
         if state.turn is not None:
             return state.turn.current_player
         return state.setup.pending_settlement_player or state.setup.pending_road_player

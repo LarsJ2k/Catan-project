@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, PlaceSetupRoad, PlaceSetupSettlement, RollDice
+from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice
 from catan.core.models.enums import ResourceType, TerrainType
 from catan.core.models.state import GameState
 
@@ -17,9 +17,10 @@ class DrawnUi:
     end_turn_button_rect: object
 
 
-def extract_legal_targets(legal_actions: Iterable[object]) -> tuple[set[int], set[int], bool, bool]:
+def extract_legal_targets(legal_actions: Iterable[object]) -> tuple[set[int], set[int], set[int], bool, bool]:
     legal_nodes: set[int] = set()
     legal_edges: set[int] = set()
+    legal_tiles: set[int] = set()
     can_roll = False
     can_end = False
 
@@ -28,12 +29,14 @@ def extract_legal_targets(legal_actions: Iterable[object]) -> tuple[set[int], se
             legal_nodes.add(action.node_id)
         elif isinstance(action, (PlaceSetupRoad, BuildRoad)):
             legal_edges.add(action.edge_id)
+        elif isinstance(action, MoveRobber):
+            legal_tiles.add(action.tile_id)
         elif isinstance(action, RollDice):
             can_roll = True
         elif isinstance(action, EndTurn):
             can_end = True
 
-    return legal_nodes, legal_edges, can_roll, can_end
+    return legal_nodes, legal_edges, legal_tiles, can_roll, can_end
 
 
 class PygameRenderer:
@@ -55,14 +58,14 @@ class PygameRenderer:
         last_applied_action: str | None,
         fullscreen: bool,
     ) -> DrawnUi:
-        legal_nodes, legal_edges, can_roll, can_end = extract_legal_targets(legal_actions)
+        legal_nodes, legal_edges, legal_tiles, can_roll, can_end = extract_legal_targets(legal_actions)
         width, height = screen.get_size()
         panel_width = 320
         panel_x = width - panel_width
 
         self.pg.draw.rect(screen, (28, 28, 32), (0, 0, width, height))
         self._draw_phase_banner(screen, state, width=width, panel_x=panel_x, fullscreen=fullscreen)
-        self._draw_tiles(screen, state, layout)
+        self._draw_tiles(screen, state, layout, legal_tiles, hover_target.tile_id)
         self._draw_board(screen, state, layout, legal_nodes, legal_edges, hover_target)
         roll_rect, end_rect = self._draw_side_panel(
             screen,
@@ -90,7 +93,7 @@ class PygameRenderer:
         banner_text = f"{label}  |  {mode} (F11 toggle)"
         screen.blit(self.font.render(banner_text, True, (255, 255, 255)), (30, 26))
 
-    def _draw_tiles(self, screen, state: GameState, layout: BoardLayout) -> None:
+    def _draw_tiles(self, screen, state: GameState, layout: BoardLayout, legal_tiles: set[int], hover_tile: int | None) -> None:
         if not layout.tile_polygons:
             return
         for tile in state.board.tiles:
@@ -101,7 +104,15 @@ class PygameRenderer:
 
             color = self._terrain_color(tile.terrain)
             self.pg.draw.polygon(screen, color, polygon)
-            self.pg.draw.polygon(screen, (50, 50, 50), polygon, width=2)
+            border = (50, 50, 50)
+            border_width = 2
+            if tile.id in legal_tiles:
+                border = (250, 240, 80)
+                border_width = 4
+            if hover_tile == tile.id:
+                border = (255, 255, 170)
+                border_width = 5
+            self.pg.draw.polygon(screen, border, polygon, width=border_width)
 
             resource_label = self._terrain_name(tile.terrain)
             number_label = str(tile.number_token) if tile.number_token is not None else "-"
