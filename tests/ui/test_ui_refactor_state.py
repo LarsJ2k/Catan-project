@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+from dataclasses import replace
+
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement
+from catan.core.models.board import Board, Edge, Tile
+from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
+from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
+from catan.ui.pygame_ui.app import PygameApp
+from catan.ui.pygame_ui.renderer import PygameRenderer, primary_turn_button_state
+
+
+class DummyRect:
+    def __init__(self, hit: bool = False):
+        self._hit = hit
+
+    def collidepoint(self, _pos) -> bool:
+        return self._hit
+
+
+class DummyPygame:
+    pass
+
+
+def make_state() -> GameState:
+    board = Board(
+        nodes=(0, 1),
+        edges=(Edge(id=0, node_a=0, node_b=1),),
+        tiles=(Tile(id=0, terrain=TerrainType.FIELDS, number_token=8),),
+        node_to_adjacent_tiles={0: (0,), 1: (0,)},
+        node_to_adjacent_edges={0: (0,), 1: (0,)},
+        edge_to_adjacent_nodes={0: (0, 1)},
+        ports=(),
+        node_to_ports={0: (), 1: ()},
+    )
+    players = {
+        1: PlayerState(player_id=1, resources={r: 0 for r in ResourceType}),
+        2: PlayerState(player_id=2, resources={r: 0 for r in ResourceType}),
+    }
+    return GameState(
+        board=board,
+        players=players,
+        phase=GamePhase.MAIN_TURN,
+        setup=SetupState(order=[1, 2]),
+        turn=TurnState(current_player=1, step=TurnStep.ACTIONS),
+        placed=PlacedPieces(),
+        rng_state=1,
+    )
+
+
+def test_bank_counts_subtract_player_hands() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = make_state()
+    p1 = replace(state.players[1], resources={**state.players[1].resources, ResourceType.LUMBER: 2})
+    p2 = replace(state.players[2], resources={**state.players[2].resources, ResourceType.LUMBER: 1, ResourceType.ORE: 3})
+    state = replace(state, players={1: p1, 2: p2})
+
+    counts = renderer._bank_counts(state)
+
+    assert counts[ResourceType.LUMBER] == 16
+    assert counts[ResourceType.ORE] == 16
+    assert counts[ResourceType.BRICK] == 19
+
+
+def test_bank_trade_draft_validity_respects_port_rates() -> None:
+    app = PygameApp(DummyPygame())
+    legal = [
+        BankTrade(player_id=1, offer_resource=ResourceType.LUMBER, request_resource=ResourceType.BRICK, trade_rate=4),
+        BankTrade(player_id=1, offer_resource=ResourceType.LUMBER, request_resource=ResourceType.ORE, trade_rate=2),
+    ]
+    offered = {r: 0 for r in ResourceType}
+    requested = {r: 0 for r in ResourceType}
+    offered[ResourceType.LUMBER] = 2
+    requested[ResourceType.ORE] = 1
+
+    assert app._is_valid_bank_trade_draft(legal, 1, offered, requested) is True
+
+    requested = {r: 0 for r in ResourceType}
+    requested[ResourceType.BRICK] = 1
+    assert app._is_valid_bank_trade_draft(legal, 1, offered, requested) is False
+
+
+def test_trade_draft_offer_click_caps_to_available_resources_and_cancel_signal() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    p1 = replace(state.players[1], resources={**state.players[1].resources, ResourceType.ORE: 1})
+    state = replace(state, players={1: p1, 2: state.players[2]})
+    offered = {r: 0 for r in ResourceType}
+    requested = {r: 0 for r in ResourceType}
+    trade_ui = {
+        "request_rects": {r: DummyRect(False) for r in ResourceType},
+        "offer_rects": {r: DummyRect(r == ResourceType.ORE) for r in ResourceType},
+        "cancel_button_rect": DummyRect(False),
+        "bank_button_rect": DummyRect(False),
+    }
+
+    app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
+    app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested)
+    assert offered[ResourceType.ORE] == 1
+
+    trade_ui["offer_rects"][ResourceType.ORE] = DummyRect(False)
+    trade_ui["cancel_button_rect"] = DummyRect(True)
+    assert app._handle_trade_overlay_click((0, 0), trade_ui, [], state, 1, offered, requested) == "cancel"
+
+
+def test_button_enablement_for_build_and_dev() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = make_state()
+    state = replace(
+        state,
+        players={
+            1: replace(
+                state.players[1],
+                resources={
+                    **state.players[1].resources,
+                    ResourceType.ORE: 1,
+                    ResourceType.GRAIN: 1,
+                    ResourceType.WOOL: 1,
+                },
+            ),
+            2: state.players[2],
+        },
+    )
+    legal = [BuildRoad(player_id=1, edge_id=0), BuildSettlement(player_id=1, node_id=0), BuildCity(player_id=1, node_id=1)]
+
+    assert renderer._is_action_enabled("road", legal, state, 1) is True
+    assert renderer._is_action_enabled("settlement", legal, state, 1) is True
+    assert renderer._is_action_enabled("city", legal, state, 1) is True
+    assert renderer._is_action_enabled("dev", legal, state, 1) is True
+
+
+def test_primary_turn_button_state_logic() -> None:
+    assert primary_turn_button_state(can_roll=True, can_end=False) == "Roll Dice"
+    assert primary_turn_button_state(can_roll=False, can_end=True) == "End Turn"
+    assert primary_turn_button_state(can_roll=False, can_end=False) == "Waiting"
