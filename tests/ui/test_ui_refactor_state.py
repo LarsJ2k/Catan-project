@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, EndTurn, RollDice
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
@@ -133,3 +133,46 @@ def test_primary_turn_button_state_logic() -> None:
     assert primary_turn_button_state(can_roll=True, can_end=False) == "Roll Dice"
     assert primary_turn_button_state(can_roll=False, can_end=True) == "End Turn"
     assert primary_turn_button_state(can_roll=False, can_end=False) == "Waiting"
+
+
+def test_phase_banner_uses_active_player_color_and_name() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = make_state()
+
+    color, label = renderer._phase_banner_config(state)
+
+    assert color == (235, 87, 87)
+    assert label == "Speler P1 aan zet"
+
+
+def test_phase_banner_uses_setup_player_when_turn_is_none() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = replace(make_state(), turn=None, setup=SetupState(pending_settlement_player=2, order=[1, 2]))
+
+    color, label = renderer._phase_banner_config(state)
+
+    assert color == (92, 178, 92)
+    assert label == "Speler P2 aan zet"
+
+
+def test_clicking_dice_button_only_rolls() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    roll_action = RollDice(player_id=1)
+    end_action = EndTurn(player_id=1)
+    button_rects = {
+        "trade": DummyRect(False),
+        "dev": DummyRect(False),
+        "road": DummyRect(False),
+        "settlement": DummyRect(False),
+        "city": DummyRect(False),
+        "primary": DummyRect(False),
+        "dice": DummyRect(True),
+        "trade_cancel": DummyRect(False),
+    }
+
+    clicked = app._handle_action_button_click((0, 0), button_rects, [roll_action, end_action], state, 1, None, False)
+    assert clicked == roll_action
+
+    clicked = app._handle_action_button_click((0, 0), button_rects, [end_action], state, 1, None, False)
+    assert clicked is None
