@@ -58,7 +58,8 @@ class PygameApp:
             elif state.turn and state.turn.step == TurnStep.ACTIONS:
                 offer = self._resource_name(bank_trade_offer) if bank_trade_offer is not None else "-"
                 request = self._resource_name(bank_trade_request) if bank_trade_request is not None else "-"
-                selected_action_text = f"Bank trade offer={offer}, request={request} (1-5 offer, Z-B request, Enter submit)"
+                rate_text = self._selected_trade_rate_text(legal, bank_trade_offer)
+                selected_action_text = f"Bank trade offer={offer}, request={request}, rate={rate_text} (1-5 offer, Z-B request, Enter submit)"
 
             drawn = renderer.render(
                 screen,
@@ -203,9 +204,16 @@ class PygameApp:
         if event.key in (self.pg.K_BACKSPACE, self.pg.K_DELETE):
             return None, None, None
         if event.key in (self.pg.K_RETURN, self.pg.K_KP_ENTER) and offer is not None and request is not None:
-            candidate = BankTrade(player_id=player_id, offer_resource=offer, request_resource=request)
-            if candidate in legal_actions:
-                return candidate, offer, request
+            candidates = [
+                action
+                for action in legal_actions
+                if isinstance(action, BankTrade)
+                and action.player_id == player_id
+                and action.offer_resource == offer
+                and action.request_resource == request
+            ]
+            if candidates:
+                return candidates[0], offer, request
         return None, offer, request
 
     def _create_display_surface(self):
@@ -283,11 +291,30 @@ class PygameApp:
         if len(player_changes) != 2:
             return None
 
-        offered = next((resource for resource, delta in player_changes.items() if delta == -4), None)
+        offered = next((resource for resource, delta in player_changes.items() if delta < 0), None)
         requested = next((resource for resource, delta in player_changes.items() if delta == 1), None)
         if offered is None or requested is None:
             return None
+        rate = -player_changes[offered]
+        if rate == 2:
+            return f"P{player_id} traded 2 {self._resource_name(offered)} for 1 {self._resource_name(requested)} via {self._resource_name(offered)} port"
+        if rate == 3:
+            return f"P{player_id} traded 3 {self._resource_name(offered)} for 1 {self._resource_name(requested)} via 3:1 port"
         return f"P{player_id} traded 4 {self._resource_name(offered)} for 1 {self._resource_name(requested)}"
+
+    def _selected_trade_rate_text(self, legal_actions: list[object], offer: ResourceType | None) -> str:
+        if offer is None:
+            return "-"
+        rates = sorted(
+            {
+                action.trade_rate
+                for action in legal_actions
+                if isinstance(action, BankTrade) and action.offer_resource == offer
+            }
+        )
+        if not rates:
+            return "n/a"
+        return str(rates[0])
 
     def _resource_name(self, resource: ResourceType) -> str:
         names = {

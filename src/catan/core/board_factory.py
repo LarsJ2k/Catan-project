@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 
-from .models.board import Board, Edge, Tile
-from .models.enums import TerrainType
+from .models.board import Board, Edge, Port, Tile
+from .models.enums import ResourceType, TerrainType
 
 
 def build_classic_19_tile_board() -> Board:
@@ -42,6 +42,7 @@ def build_classic_19_tile_board() -> Board:
     edge_key_to_id: dict[tuple[int, int], int] = {}
     edges: list[Edge] = []
     node_to_adjacent_edges: dict[int, set[int]] = {}
+    edge_to_adjacent_tiles: dict[int, set[int]] = {}
 
     tiles: list[Tile] = []
     tile_centers: dict[int, tuple[float, float]] = {}
@@ -80,8 +81,10 @@ def build_classic_19_tile_board() -> Board:
             edge_id = edge_key_to_id[edge_key]
             node_to_adjacent_edges.setdefault(a, set()).add(edge_id)
             node_to_adjacent_edges.setdefault(b, set()).add(edge_id)
+            edge_to_adjacent_tiles.setdefault(edge_id, set()).add(tile_id)
 
     edge_to_adjacent_nodes = {edge.id: (edge.node_a, edge.node_b) for edge in edges}
+    ports, node_to_ports = _build_ports(edge_to_adjacent_tiles, edge_to_adjacent_nodes, node_positions)
 
     return Board(
         nodes=tuple(sorted(node_key_to_id.values())),
@@ -93,6 +96,8 @@ def build_classic_19_tile_board() -> Board:
         tile_to_nodes=tile_to_nodes,
         node_positions=node_positions,
         tile_centers=tile_centers,
+        ports=ports,
+        node_to_ports=node_to_ports,
     )
 
 
@@ -121,3 +126,52 @@ def _hex_corners(cx: float, cy: float, size: float = 1.0) -> list[tuple[float, f
         y = cy + size * math.sin(angle_rad)
         corners.append((x, y))
     return corners
+
+
+def _build_ports(
+    edge_to_adjacent_tiles: dict[int, set[int]],
+    edge_to_adjacent_nodes: dict[int, tuple[int, int]],
+    node_positions: dict[int, tuple[float, float]],
+) -> tuple[tuple[Port, ...], dict[int, tuple[int, ...]]]:
+    coastal_edges = [edge_id for edge_id, tiles in edge_to_adjacent_tiles.items() if len(tiles) == 1]
+    sorted_coastal = sorted(
+        coastal_edges,
+        key=lambda edge_id: _edge_midpoint_angle(edge_to_adjacent_nodes[edge_id], node_positions),
+    )
+    step = len(sorted_coastal) / 9
+    selected_edges: list[int] = []
+    used: set[int] = set()
+    for idx in range(9):
+        edge_index = int(round(idx * step)) % len(sorted_coastal)
+        while sorted_coastal[edge_index] in used:
+            edge_index = (edge_index + 1) % len(sorted_coastal)
+        selected_edges.append(sorted_coastal[edge_index])
+        used.add(sorted_coastal[edge_index])
+
+    port_resources: list[ResourceType | None] = [
+        None,
+        ResourceType.BRICK,
+        None,
+        ResourceType.LUMBER,
+        None,
+        ResourceType.GRAIN,
+        None,
+        ResourceType.ORE,
+        ResourceType.WOOL,
+    ]
+    ports: list[Port] = []
+    node_to_port_ids: dict[int, list[int]] = {}
+    for port_id, (edge_id, trade_resource) in enumerate(zip(selected_edges, port_resources, strict=True)):
+        node_ids = edge_to_adjacent_nodes[edge_id]
+        ports.append(Port(id=port_id, edge_id=edge_id, node_ids=node_ids, trade_resource=trade_resource))
+        for node_id in node_ids:
+            node_to_port_ids.setdefault(node_id, []).append(port_id)
+    return tuple(ports), {node_id: tuple(sorted(port_ids)) for node_id, port_ids in node_to_port_ids.items()}
+
+
+def _edge_midpoint_angle(edge_nodes: tuple[int, int], node_positions: dict[int, tuple[float, float]]) -> float:
+    ax, ay = node_positions[edge_nodes[0]]
+    bx, by = node_positions[edge_nodes[1]]
+    mx = (ax + bx) / 2
+    my = (ay + by) / 2
+    return math.atan2(my, mx)

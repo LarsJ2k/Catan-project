@@ -24,6 +24,15 @@ def test_classic_board_graph_consistency() -> None:
     assert len(board.tiles) == 19
     assert len(board.nodes) == 54
     assert len(board.edges) == 72
+    assert len(board.ports) == 9
+    assert sum(1 for port in board.ports if port.trade_resource is None) == 4
+    assert {port.trade_resource for port in board.ports if port.trade_resource is not None} == {
+        ResourceType.BRICK,
+        ResourceType.LUMBER,
+        ResourceType.GRAIN,
+        ResourceType.ORE,
+        ResourceType.WOOL,
+    }
 
     for tile_id, nodes in board.tile_to_nodes.items():
         assert len(nodes) == 6
@@ -113,3 +122,10 @@ def test_setup_and_main_turn_legality_on_classic_board() -> None:
     state = replace(state, players={**state.players, current: rich_player})
     legal_rich = get_legal_actions(state, current)
     assert any(isinstance(a, BuildRoad) for a in legal_rich)
+
+
+def test_board_port_assignment_is_deterministic() -> None:
+    board_a = build_classic_19_tile_board()
+    board_b = build_classic_19_tile_board()
+    assert board_a.ports == board_b.ports
+    assert board_a.node_to_ports == board_b.node_to_ports

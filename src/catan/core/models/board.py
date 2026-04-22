@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .enums import ResourceType
 from .enums import TerrainType
 
 NodeId = int
@@ -27,6 +28,18 @@ class Edge:
 
 
 @dataclass(frozen=True)
+class Port:
+    id: int
+    edge_id: EdgeId
+    node_ids: tuple[NodeId, NodeId]
+    trade_resource: ResourceType | None
+
+    @property
+    def trade_rate(self) -> int:
+        return 3 if self.trade_resource is None else 2
+
+
+@dataclass(frozen=True)
 class Board:
     nodes: tuple[NodeId, ...]
     edges: tuple[Edge, ...]
@@ -37,6 +50,8 @@ class Board:
     tile_to_nodes: dict[TileId, tuple[NodeId, ...]] = field(default_factory=dict)
     node_positions: dict[NodeId, tuple[float, float]] = field(default_factory=dict)
     tile_centers: dict[TileId, tuple[float, float]] = field(default_factory=dict)
+    ports: tuple[Port, ...] = field(default_factory=tuple)
+    node_to_ports: dict[NodeId, tuple[int, ...]] = field(default_factory=dict)
 
     def node_neighbors(self, node_id: NodeId) -> tuple[NodeId, ...]:
         neighbors: list[NodeId] = []

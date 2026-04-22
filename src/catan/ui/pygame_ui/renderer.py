@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from catan.core.models.action import BuildCity, BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice, StealResource
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice, StealResource
 from catan.core.models.enums import ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 
@@ -78,6 +78,7 @@ class PygameRenderer:
         self._draw_phase_banner(screen, state, width=width, panel_x=panel_x, fullscreen=fullscreen)
         self._draw_tiles(screen, state, layout, legal_tiles, hover_target.tile_id)
         self._draw_board(screen, state, layout, legal_nodes, legal_edges, steal_nodes, hover_target)
+        self._draw_ports(screen, state, layout)
         roll_rect, end_rect = self._draw_side_panel(
             screen,
             state,
@@ -226,6 +227,14 @@ class PygameRenderer:
                 amount = player.resources.get(resource, 0)
                 screen.blit(self.small_font.render(f"{label}: {amount}", True, (220, 220, 220)), (panel_x + 10, y))
                 y += 16
+            y += 4
+            port_labels = self._player_port_labels(state, active_player)
+            screen.blit(self.small_font.render("Ports: " + (", ".join(port_labels) if port_labels else "none"), True, (220, 220, 220)), (panel_x + 10, y))
+            y += 18
+            rate_parts = self._trade_rate_summaries(legal_actions)
+            if rate_parts:
+                screen.blit(self.small_font.render("Trade rates: " + ", ".join(rate_parts), True, (220, 220, 220)), (panel_x + 10, y))
+                y += 18
 
         y += 8
         roll_rect = self.pg.Rect(panel_x + 10, y, 145, 34)
@@ -272,6 +281,47 @@ class PygameRenderer:
             name = type(action).__name__
             counts[name] = counts.get(name, 0) + 1
         return [f"{name}: {count}" for name, count in sorted(counts.items())] or ["none"]
+
+    def _draw_ports(self, screen, state: GameState, layout: BoardLayout) -> None:
+        for port in state.board.ports:
+            if port.edge_id not in layout.edge_midpoints:
+                continue
+            mx, my = layout.edge_midpoints[port.edge_id]
+            node_a, node_b = port.node_ids
+            ax, ay = layout.node_positions[node_a]
+            bx, by = layout.node_positions[node_b]
+            dx = mx - (ax + bx) / 2
+            dy = my - (ay + by) / 2
+            label_x = int(mx + dx * 1.6)
+            label_y = int(my + dy * 1.6)
+            label = "3:1" if port.trade_resource is None else f"2:1 {self._resource_name(port.trade_resource)}"
+            self.pg.draw.circle(screen, (30, 30, 30), (label_x, label_y), 16)
+            self.pg.draw.circle(screen, (235, 235, 180), (label_x, label_y), 15)
+            text = self.small_font.render(label, True, (20, 20, 20))
+            screen.blit(text, (label_x - text.get_width() // 2, label_y - text.get_height() // 2))
+
+    def _player_port_labels(self, state: GameState, player_id: int) -> list[str]:
+        port_ids: set[int] = set()
+        for node_id, owner in state.placed.settlements.items():
+            if owner == player_id:
+                port_ids.update(state.board.node_to_ports.get(node_id, ()))
+        for node_id, owner in state.placed.cities.items():
+            if owner == player_id:
+                port_ids.update(state.board.node_to_ports.get(node_id, ()))
+        labels: list[str] = []
+        for port_id in sorted(port_ids):
+            port = state.board.ports[port_id]
+            labels.append("3:1" if port.trade_resource is None else f"2:1 {self._resource_name(port.trade_resource)}")
+        return labels
+
+    def _trade_rate_summaries(self, legal_actions) -> list[str]:
+        offers: dict[ResourceType, int] = {}
+        for action in legal_actions:
+            if isinstance(action, BankTrade):
+                current = offers.get(action.offer_resource)
+                if current is None or action.trade_rate < current:
+                    offers[action.offer_resource] = action.trade_rate
+        return [f"{self._resource_name(resource)} {rate}:1" for resource, rate in sorted(offers.items(), key=lambda x: x[0].name)]
 
     def _player_color(self, player_id: int) -> tuple[int, int, int]:
         palette = {
