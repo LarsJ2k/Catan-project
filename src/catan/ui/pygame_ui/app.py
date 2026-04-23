@@ -42,7 +42,12 @@ from catan.runners.game_setup import (
 )
 from catan.runners.local_pygame_runner import LocalPygameRunner
 from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat, export_tournament_result, generate_match_configs
-from catan.controllers.bot_catalog import create_custom_bot_definition, get_bot_definition, list_bot_definitions
+from catan.controllers.bot_catalog import (
+    create_custom_bot_definition,
+    delete_custom_bot_definition,
+    get_bot_definition,
+    list_bot_definitions,
+)
 from catan.controllers.heuristic_params import merge_with_family_defaults
 
 from .input_mapper import HoverTarget, PygameInputMapper
@@ -82,6 +87,7 @@ class PygameApp:
         selected_new_bot_field_idx = 0
         bot_lab_scroll_offset = 0
         bot_lab_error: str | None = None
+        delete_confirm_open = False
 
         while True:
             width, height = screen.get_size()
@@ -325,6 +331,7 @@ class PygameApp:
                     details_width = width - details_x - 40
                     new_from_selected_rect = self.pg.Rect(details_x, height - 120, min(360, details_width), 42)
                     save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
+                    delete_rect = self.pg.Rect(width - 430, height - 120, 180, 42)
                     detail_panel_rect = self.pg.Rect(details_x, 96, details_width, height - 226)
                     selected_definition = get_bot_definition(selected_lab_bot_id) if selected_lab_bot_id else None
                     if create_form_open:
@@ -340,10 +347,29 @@ class PygameApp:
                     max_detail_scroll = max(0, (detail_row_count - max_rows) * detail_row_height)
                     bot_lab_scroll_offset = max(0, min(bot_lab_scroll_offset, max_detail_scroll))
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                        confirm_rect = self.pg.Rect(width // 2 - 260, height // 2 - 90, 520, 180)
+                        confirm_cancel_rect = self.pg.Rect(confirm_rect.x + 34, confirm_rect.bottom - 58, 180, 40)
+                        confirm_delete_rect = self.pg.Rect(confirm_rect.right - 214, confirm_rect.bottom - 58, 180, 40)
+                        if delete_confirm_open:
+                            if confirm_delete_rect.collidepoint(event.pos) and selected_definition is not None and not selected_definition.is_builtin:
+                                removed = delete_custom_bot_definition(selected_definition.bot_id)
+                                if removed:
+                                    bot_definitions = list_bot_definitions()
+                                    selected_lab_bot_id = bot_definitions[0].bot_id if bot_definitions else None
+                                    create_form_open = False
+                                    bot_lab_scroll_offset = 0
+                                    bot_lab_error = None
+                                else:
+                                    bot_lab_error = "Could not delete selected custom bot."
+                                delete_confirm_open = False
+                            elif confirm_cancel_rect.collidepoint(event.pos) or not confirm_rect.collidepoint(event.pos):
+                                delete_confirm_open = False
+                            continue
                         if back_rect.collidepoint(event.pos):
                             flow_state = flow_state.back_to_menu()
                             create_form_open = False
                             bot_lab_error = None
+                            delete_confirm_open = False
                             continue
                         if list_rect.collidepoint(event.pos):
                             row = (event.pos[1] - list_rect.y) // 38
@@ -389,11 +415,17 @@ class PygameApp:
                                 bot_lab_error = None
                             except ValueError as exc:
                                 bot_lab_error = str(exc)
+                        if (not create_form_open) and delete_rect.collidepoint(event.pos) and selected_definition is not None:
+                            if selected_definition.is_builtin:
+                                bot_lab_error = "Built-in bots cannot be deleted."
+                            else:
+                                delete_confirm_open = True
+                                bot_lab_error = None
                     if event.type == self.pg.MOUSEWHEEL:
                         mouse_pos = self.pg.mouse.get_pos()
-                        if detail_panel_rect.collidepoint(mouse_pos):
+                        if (not delete_confirm_open) and detail_panel_rect.collidepoint(mouse_pos):
                             bot_lab_scroll_offset = max(0, min(max_detail_scroll, bot_lab_scroll_offset - event.y * 26))
-                    if create_form_open and event.type == self.pg.KEYDOWN:
+                    if create_form_open and (not delete_confirm_open) and event.type == self.pg.KEYDOWN:
                         editable_fields = ["__name__", "__description__", *new_bot_param_keys]
                         visible_row_height = 42
                         if event.key in (self.pg.K_TAB, self.pg.K_DOWN):
@@ -431,7 +463,7 @@ class PygameApp:
                                 new_bot_parameters[selected_field] = new_bot_parameters[selected_field][:-1]
                             elif event.unicode and event.unicode.isprintable():
                                 new_bot_parameters[selected_field] += event.unicode
-                    elif (not create_form_open) and event.type == self.pg.KEYDOWN and selected_definition is not None:
+                    elif (not create_form_open) and (not delete_confirm_open) and event.type == self.pg.KEYDOWN and selected_definition is not None:
                         if event.key in (self.pg.K_PAGEDOWN, self.pg.K_DOWN):
                             bot_lab_scroll_offset = min(max_detail_scroll, bot_lab_scroll_offset + detail_panel_rect.height // 3)
                         elif event.key in (self.pg.K_PAGEUP, self.pg.K_UP):
@@ -592,8 +624,33 @@ class PygameApp:
                         save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
                         self.pg.draw.rect(screen, (70, 120, 70), save_rect, border_radius=8)
                         screen.blit(small_font.render("Save New Bot", True, (255, 255, 255)), (width - 200, height - 110))
+                    elif selected_definition is not None:
+                        delete_rect = self.pg.Rect(width - 430, height - 120, 180, 42)
+                        can_delete = not selected_definition.is_builtin
+                        self.pg.draw.rect(screen, (150, 70, 70) if can_delete else (90, 90, 90), delete_rect, border_radius=8)
+                        delete_label = "Delete Bot" if can_delete else "Built-in locked"
+                        screen.blit(small_font.render(delete_label, True, (255, 255, 255)), (delete_rect.x + 22, delete_rect.y + 10))
                     if bot_lab_error:
                         screen.blit(small_font.render(bot_lab_error, True, (240, 140, 140)), (details_x, height - 145))
+                    if delete_confirm_open and selected_definition is not None and not selected_definition.is_builtin:
+                        overlay = self.pg.Surface((width, height), self.pg.SRCALPHA)
+                        overlay.fill((0, 0, 0, 120))
+                        screen.blit(overlay, (0, 0))
+                        confirm_rect = self.pg.Rect(width // 2 - 260, height // 2 - 90, 520, 180)
+                        confirm_cancel_rect = self.pg.Rect(confirm_rect.x + 34, confirm_rect.bottom - 58, 180, 40)
+                        confirm_delete_rect = self.pg.Rect(confirm_rect.right - 214, confirm_rect.bottom - 58, 180, 40)
+                        self.pg.draw.rect(screen, (36, 42, 62), confirm_rect, border_radius=10)
+                        self.pg.draw.rect(screen, (90, 100, 136), confirm_rect, 1, border_radius=10)
+                        screen.blit(small_font.render("Delete selected bot?", True, (245, 245, 245)), (confirm_rect.x + 20, confirm_rect.y + 20))
+                        bot_name = selected_definition.display_name[:42]
+                        screen.blit(
+                            small_font.render(f"'{bot_name}' will be permanently removed.", True, (220, 220, 235)),
+                            (confirm_rect.x + 20, confirm_rect.y + 60),
+                        )
+                        self.pg.draw.rect(screen, (90, 90, 90), confirm_cancel_rect, border_radius=8)
+                        self.pg.draw.rect(screen, (160, 70, 70), confirm_delete_rect, border_radius=8)
+                        screen.blit(small_font.render("Cancel", True, (255, 255, 255)), (confirm_cancel_rect.x + 56, confirm_cancel_rect.y + 9))
+                        screen.blit(small_font.render("Yes, delete", True, (255, 255, 255)), (confirm_delete_rect.x + 42, confirm_delete_rect.y + 9))
                     self.pg.draw.rect(screen, (90, 90, 90), back_rect)
                     screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
                 else:
