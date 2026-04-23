@@ -429,11 +429,10 @@ class PygameRenderer:
         top_y: int,
         spectator_data: dict[str, object],
     ) -> None:
-        max_panel_h = 280
         min_panel_h = 140
         panel_bottom_margin = 8
         available_h = max(height - top_y - panel_bottom_margin, min_panel_h)
-        panel_h = min(max_panel_h, available_h)
+        panel_h = available_h
         rect = self.pg.Rect(panel_x + 8, top_y, panel_width - 16, panel_h)
         self.pg.draw.rect(screen, (46, 46, 54), rect, border_radius=8)
         self.pg.draw.rect(screen, (78, 78, 88), rect, width=1, border_radius=8)
