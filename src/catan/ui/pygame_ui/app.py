@@ -54,6 +54,7 @@ class PygameApp:
         last_applied_action: str | None = None
         action_counter = 0
         discard_selection: dict[ResourceType, int] = {r: 0 for r in ResourceType}
+        discard_selection_player: int | None = None
         bank_trade_offer: ResourceType | None = None
         bank_trade_request: ResourceType | None = None
         event_log_offset = 0
@@ -68,6 +69,12 @@ class PygameApp:
             layout = build_circular_layout(state.board, center=board_center, radius=board_radius)
 
             active_player = self._active_player(state)
+            discard_selection_player = self._sync_discard_selection(
+                state,
+                active_player,
+                discard_selection,
+                discard_selection_player,
+            )
             legal = get_legal_actions(state, active_player) if active_player is not None else []
             hover = input_mapper.get_hover_target(self.pg.mouse.get_pos(), layout) if hasattr(self.pg, "mouse") else HoverTarget()
 
@@ -265,7 +272,7 @@ class PygameApp:
                         event_log.append(f"[{action_counter:03d}] {line}")
                     selected_action_text = None
                     if not (state.turn and state.turn.step == TurnStep.DISCARD):
-                        discard_selection = {r: 0 for r in ResourceType}
+                        discard_selection_player = None
                     if state.turn is None or state.turn.step != TurnStep.ACTIONS:
                         bank_trade_offer = None
                         bank_trade_request = None
@@ -280,6 +287,22 @@ class PygameApp:
 
         self.pg.quit()
         return state
+
+    def _sync_discard_selection(
+        self,
+        state: GameState,
+        active_player: int | None,
+        selection: dict[ResourceType, int],
+        current_selection_player: int | None,
+    ) -> int | None:
+        if not (state.turn and state.turn.step == TurnStep.DISCARD and active_player is not None):
+            for resource in ResourceType:
+                selection[resource] = 0
+            return None
+        if current_selection_player != active_player:
+            for resource in ResourceType:
+                selection[resource] = 0
+        return active_player
 
     def _handle_discard_event(self, event, state: GameState, player_id: int, selection: dict[ResourceType, int]):
         if event.type != self.pg.KEYDOWN:
