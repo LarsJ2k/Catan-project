@@ -800,8 +800,14 @@ class PygameRenderer:
 
     def _scoreboard_vp_text(self, state: GameState, player_id: int) -> str:
         player = state.players[player_id]
+        award_vp = 0
+        if state.largest_army_holder == player_id:
+            award_vp += 2
+        if state.longest_road_holder == player_id:
+            award_vp += 2
+        public_vp = player.victory_points + award_vp
         if state.turn is not None and state.turn.current_player == player_id:
             hidden_vp = player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
             if hidden_vp > 0:
-                return f"VP {player.victory_points}({player.victory_points + hidden_vp})"
-        return f"VP {player.victory_points}"
+                return f"VP {public_vp}({public_vp + hidden_vp})"
+        return f"VP {public_vp}"

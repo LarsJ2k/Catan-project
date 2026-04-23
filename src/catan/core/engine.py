@@ -112,7 +112,10 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
         return _get_player_trade_legal_actions(state, player_id)
 
     if state.turn.step == TurnStep.ROLL:
-        return [RollDice(player_id=player_id)]
+        legal_actions: list[Action] = [RollDice(player_id=player_id)]
+        if _can_play_knight_card(state, player_id):
+            legal_actions.append(PlayKnightCard(player_id=player_id))
+        return legal_actions
     if state.turn.step == TurnStep.ROBBER_MOVE:
         return [MoveRobber(player_id=player_id, tile_id=tile.id) for tile in state.board.tiles if tile.id != state.robber_tile_id]
     if state.turn.step == TurnStep.ROBBER_STEAL:
@@ -860,7 +863,7 @@ def _can_buy_development_card(state: GameState, player_id: PlayerId) -> bool:
 
 
 def _can_play_knight_card(state: GameState, player_id: PlayerId) -> bool:
-    if state.turn is None or state.turn.step != TurnStep.ACTIONS:
+    if state.turn is None or state.turn.step not in (TurnStep.ROLL, TurnStep.ACTIONS):
         return False
     if state.turn.current_player != player_id:
         return False
