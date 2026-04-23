@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from catan.controllers.random_bot_controller import RandomBotController
+from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.human_controller import HumanController
 from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState, available_controller_types
 from catan.runners.launcher import create_controllers
@@ -82,7 +83,7 @@ def test_seed_selection_and_config_generation() -> None:
 def test_launch_config_uses_ordered_left_slots_and_creates_expected_controllers() -> None:
     state = GameSetupState().go_to_setup()
     state = state.with_selected_controller(ControllerType.RANDOM_BOT).add_selected_player()
-    state = state.add_selected_player()
+    state = state.with_selected_controller(ControllerType.HEURISTIC_BOT).add_selected_player()
     state = state.with_selected_controller(ControllerType.HUMAN).add_selected_player()
     state = state.with_fixed_seed_text("777")
     config = state.to_launch_config()
@@ -90,14 +91,14 @@ def test_launch_config_uses_ordered_left_slots_and_creates_expected_controllers(
     assert [slot.player_id for slot in config.player_slots] == [1, 2, 3]
     assert [slot.controller_type for slot in config.player_slots] == [
         ControllerType.RANDOM_BOT,
-        ControllerType.RANDOM_BOT,
+        ControllerType.HEURISTIC_BOT,
         ControllerType.HUMAN,
     ]
 
     controllers = create_controllers(config)
 
     assert isinstance(controllers[1], RandomBotController)
-    assert isinstance(controllers[2], RandomBotController)
+    assert isinstance(controllers[2], HeuristicBotController)
     assert isinstance(controllers[3], HumanController)
 
 
@@ -110,3 +111,5 @@ def test_cannot_start_when_too_few_players_configured() -> None:
 def test_available_controller_types_keep_human_first() -> None:
     controller_types = available_controller_types()
     assert controller_types[0] == ControllerType.HUMAN
+    assert ControllerType.RANDOM_BOT in controller_types
+    assert ControllerType.HEURISTIC_BOT in controller_types

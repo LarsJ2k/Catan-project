@@ -13,6 +13,7 @@ class AppScreen(str, Enum):
 class ControllerType(str, Enum):
     HUMAN = "human"
     RANDOM_BOT = "random_bot"
+    HEURISTIC_BOT = "heuristic_bot"
 
 
 def available_controller_types() -> tuple[ControllerType, ...]:
@@ -22,7 +23,8 @@ def available_controller_types() -> tuple[ControllerType, ...]:
 def controller_label(controller_type: ControllerType) -> str:
     labels = {
         ControllerType.HUMAN: "Human",
-        ControllerType.RANDOM_BOT: "Bot (random)",
+        ControllerType.RANDOM_BOT: "Random Bot",
+        ControllerType.HEURISTIC_BOT: "Heuristic Bot",
     }
     return labels.get(controller_type, controller_type.value)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from catan.controllers.base import Controller
+from catan.controllers.human_controller import HumanController
 from catan.core.engine import apply_action, get_legal_actions, get_observation, is_terminal
 from catan.core.models.state import GameState
 
@@ -19,7 +20,7 @@ class HeadlessRunner:
                 break
             controller = controllers[player_id]
             legal = get_legal_actions(current, player_id)
-            observation = get_observation(current, player_id)
+            observation = get_observation(current, player_id, debug=not isinstance(controller, HumanController))
             if not legal:
                 break
             action = controller.choose_action(observation, legal)
