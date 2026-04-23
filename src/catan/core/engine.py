@@ -695,7 +695,12 @@ def _apply_play_knight_card(state: GameState, action: PlayKnightCard) -> GameSta
     next_state = replace(
         state,
         players={**state.players, action.player_id: updated_player},
-        turn=replace(state.turn, step=TurnStep.ROBBER_MOVE, priority_player=action.player_id),
+        turn=replace(
+            state.turn,
+            step=TurnStep.ROBBER_MOVE,
+            priority_player=action.player_id,
+            dev_card_played_this_turn=True,
+        ),
         robber_source="knight",
     )
     next_state = _recompute_largest_army_state(next_state)
@@ -711,7 +716,12 @@ def _apply_play_road_building_card(state: GameState, action: PlayRoadBuildingCar
     next_state = replace(
         state,
         players={**state.players, action.player_id: updated_player},
-        turn=replace(state.turn, step=TurnStep.ROAD_BUILDING, priority_player=action.player_id),
+        turn=replace(
+            state.turn,
+            step=TurnStep.ROAD_BUILDING,
+            priority_player=action.player_id,
+            dev_card_played_this_turn=True,
+        ),
         dev_card_flow=flow,
     )
     if not _legal_road_edges(next_state, action.player_id, require_resources=False):
@@ -739,7 +749,12 @@ def _apply_play_year_of_plenty_card(state: GameState, action: PlayYearOfPlentyCa
     return replace(
         state,
         players={**state.players, action.player_id: updated_player},
-        turn=replace(state.turn, step=TurnStep.YEAR_OF_PLENTY, priority_player=action.player_id),
+        turn=replace(
+            state.turn,
+            step=TurnStep.YEAR_OF_PLENTY,
+            priority_player=action.player_id,
+            dev_card_played_this_turn=True,
+        ),
         dev_card_flow=DevCardFlowState(card_type=DevelopmentCardType.YEAR_OF_PLENTY),
     )
 
@@ -765,7 +780,12 @@ def _apply_play_monopoly_card(state: GameState, action: PlayMonopolyCard) -> Gam
     return replace(
         state,
         players={**state.players, action.player_id: updated_player},
-        turn=replace(state.turn, step=TurnStep.MONOPOLY, priority_player=action.player_id),
+        turn=replace(
+            state.turn,
+            step=TurnStep.MONOPOLY,
+            priority_player=action.player_id,
+            dev_card_played_this_turn=True,
+        ),
         dev_card_flow=DevCardFlowState(card_type=DevelopmentCardType.MONOPOLY),
     )
 
@@ -952,7 +972,14 @@ def _apply_end_turn(state: GameState) -> GameState:
     return replace(
         state,
         players={**state.players, current_player: updated_current},
-        turn=replace(state.turn, current_player=next_player, step=TurnStep.ROLL, last_roll=None, priority_player=None),
+        turn=replace(
+            state.turn,
+            current_player=next_player,
+            step=TurnStep.ROLL,
+            last_roll=None,
+            priority_player=None,
+            dev_card_played_this_turn=False,
+        ),
         robber_source=None,
     )
 
@@ -1029,6 +1056,8 @@ def _can_play_knight_card(state: GameState, player_id: PlayerId) -> bool:
         return False
     if state.turn.current_player != player_id:
         return False
+    if state.turn.dev_card_played_this_turn:
+        return False
     player = state.players[player_id]
     playable_knights = player.dev_cards.get(DevelopmentCardType.KNIGHT, 0) - player.new_dev_cards.get(DevelopmentCardType.KNIGHT, 0)
     return playable_knights > 0
@@ -1038,6 +1067,8 @@ def _can_play_dev_card(state: GameState, player_id: PlayerId, card_type: Develop
     if state.turn is None or state.turn.step != TurnStep.ACTIONS:
         return False
     if state.turn.current_player != player_id:
+        return False
+    if state.turn.dev_card_played_this_turn:
         return False
     player = state.players[player_id]
     playable = player.dev_cards.get(card_type, 0) - player.new_dev_cards.get(card_type, 0)
