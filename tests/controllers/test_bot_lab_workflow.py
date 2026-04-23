@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from catan.controllers.bot_catalog import create_custom_bot_definition, get_bot_definition, list_bot_definitions
+from catan.controllers.bot_catalog import create_custom_bot_definition, delete_custom_bot_definition, get_bot_definition, list_bot_definitions
 from catan.runners.game_setup import ControllerType, TournamentSetupState, available_controller_types
 
 
@@ -84,3 +84,24 @@ def test_heuristic_params_are_visible_and_copy_editable(tmp_path) -> None:
     assert loaded is not None
     assert loaded.parameters["road_to_target_weight"] == 0.01
     assert loaded.parameters["settlement_base_score"] == 350.0
+
+
+def test_delete_custom_bot_definition_removes_only_custom_bot(tmp_path) -> None:
+    storage_path = tmp_path / "custom_bots.json"
+    created = create_custom_bot_definition(
+        name="Delete Me",
+        base_bot_id="random_bot",
+        description="to remove",
+        parameters={},
+        storage_path=storage_path,
+    )
+
+    assert delete_custom_bot_definition(created.bot_id, storage_path=storage_path) is True
+    assert get_bot_definition(created.bot_id, storage_path=storage_path) is None
+    assert get_bot_definition("random_bot", storage_path=storage_path) is not None
+
+
+def test_delete_custom_bot_definition_returns_false_for_missing_or_builtin(tmp_path) -> None:
+    storage_path = tmp_path / "custom_bots.json"
+    assert delete_custom_bot_definition("missing_bot", storage_path=storage_path) is False
+    assert delete_custom_bot_definition("random_bot", storage_path=storage_path) is False

@@ -219,6 +219,15 @@ def create_custom_bot_definition(
     return created
 
 
+def delete_custom_bot_definition(bot_id: str, *, storage_path: Path | None = None) -> bool:
+    existing_custom = _load_custom_bot_definitions(storage_path=storage_path)
+    remaining_custom = tuple(definition for definition in existing_custom if definition.bot_id != bot_id)
+    if len(remaining_custom) == len(existing_custom):
+        return False
+    _write_custom_bot_definitions(remaining_custom, storage_path=storage_path)
+    return True
+
+
 def build_bot_controller_from_definition(
     bot_id: str,
     *,
