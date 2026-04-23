@@ -3,7 +3,21 @@ from __future__ import annotations
 from dataclasses import replace
 
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions, get_observation
-from catan.core.models.action import BuyDevelopmentCard, EndTurn, MoveRobber, PlayKnightCard, RollDice, StealResource
+from catan.core.models.action import (
+    BuildRoad,
+    BuyDevelopmentCard,
+    ChooseMonopolyResource,
+    ChooseYearOfPlentyResources,
+    EndTurn,
+    FinishRoadBuildingCard,
+    MoveRobber,
+    PlayKnightCard,
+    PlayMonopolyCard,
+    PlayRoadBuildingCard,
+    PlayYearOfPlentyCard,
+    RollDice,
+    StealResource,
+)
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import DevelopmentCardType, GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, SetupState, TurnState
@@ -392,3 +406,138 @@ def test_public_observation_exposes_knights_and_longest_road_fields() -> None:
     assert p1.has_longest_road is False
     assert p2.longest_road_length == 5
     assert p2.has_longest_road is True
+
+
+def test_road_building_cannot_be_played_if_bought_this_turn() -> None:
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    fresh = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.ROAD_BUILDING] = 1
+    fresh[DevelopmentCardType.ROAD_BUILDING] = 1
+    state = replace(state, players={1: replace(state.players[1], dev_cards=cards, new_dev_cards=fresh), 2: state.players[2]})
+    assert PlayRoadBuildingCard(player_id=1) not in get_legal_actions(state, 1)
+
+
+def test_road_building_places_up_to_two_free_legal_roads_without_resources() -> None:
+    board = Board(
+        nodes=(0, 1, 2, 3),
+        edges=(Edge(id=0, node_a=0, node_b=1), Edge(id=1, node_a=1, node_b=2), Edge(id=2, node_a=2, node_b=3)),
+        tiles=(Tile(id=0, terrain=TerrainType.FIELDS, number_token=8),),
+        node_to_adjacent_tiles={0: (0,), 1: (0,), 2: (0,), 3: (0,)},
+        node_to_adjacent_edges={0: (0,), 1: (0, 1), 2: (1, 2), 3: (2,)},
+        edge_to_adjacent_nodes={0: (0, 1), 1: (1, 2), 2: (2, 3)},
+        ports=(),
+        node_to_ports={0: (), 1: (), 2: (), 3: ()},
+    )
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.ROAD_BUILDING] = 1
+    state = replace(
+        state,
+        board=board,
+        placed=PlacedPieces(settlements={0: 1}, roads={}, cities={}),
+        players={
+            1: replace(state.players[1], dev_cards=cards, new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}),
+            2: state.players[2],
+        },
+    )
+
+    started = apply_action(state, PlayRoadBuildingCard(player_id=1))
+    assert started.turn.step == TurnStep.ROAD_BUILDING
+    assert BuildRoad(player_id=1, edge_id=0) in get_legal_actions(started, 1)
+    assert started.players[1].resources == state.players[1].resources
+
+    after_one = apply_action(started, BuildRoad(player_id=1, edge_id=0))
+    assert after_one.turn.step == TurnStep.ROAD_BUILDING
+    assert BuildRoad(player_id=1, edge_id=1) in get_legal_actions(after_one, 1)
+
+    after_two = apply_action(after_one, BuildRoad(player_id=1, edge_id=1))
+    assert after_two.turn.step == TurnStep.ACTIONS
+    assert after_two.players[1].resources == state.players[1].resources
+
+
+def test_road_building_handles_fewer_than_two_legal_placements() -> None:
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.ROAD_BUILDING] = 1
+    state = replace(
+        state,
+        placed=PlacedPieces(settlements={0: 1}, roads={0: 2}, cities={}),
+        players={
+            1: replace(state.players[1], dev_cards=cards, new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}),
+            2: state.players[2],
+        },
+    )
+    started = apply_action(state, PlayRoadBuildingCard(player_id=1))
+    assert started.turn.step == TurnStep.ACTIONS
+
+
+def test_year_of_plenty_rules_and_resource_updates() -> None:
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    fresh = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.YEAR_OF_PLENTY] = 1
+    fresh[DevelopmentCardType.YEAR_OF_PLENTY] = 1
+    blocked = replace(state, players={1: replace(state.players[1], dev_cards=cards, new_dev_cards=fresh), 2: state.players[2]})
+    assert PlayYearOfPlentyCard(player_id=1) not in get_legal_actions(blocked, 1)
+
+    playable = replace(blocked, players={1: replace(blocked.players[1], new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}), 2: blocked.players[2]})
+    started = apply_action(playable, PlayYearOfPlentyCard(player_id=1))
+    assert started.turn.step == TurnStep.YEAR_OF_PLENTY
+    after = apply_action(
+        started,
+        ChooseYearOfPlentyResources(player_id=1, first_resource=ResourceType.ORE, second_resource=ResourceType.ORE),
+    )
+    assert after.players[1].resources[ResourceType.ORE] == playable.players[1].resources[ResourceType.ORE] + 2
+    assert after.turn.step == TurnStep.ACTIONS
+
+
+def test_monopoly_collects_all_from_opponents_and_is_deterministic() -> None:
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.MONOPOLY] = 1
+    fresh = {card_type: 0 for card_type in DevelopmentCardType}
+    fresh[DevelopmentCardType.MONOPOLY] = 1
+    blocked = replace(state, players={1: replace(state.players[1], dev_cards=cards, new_dev_cards=fresh), 2: state.players[2]})
+    assert PlayMonopolyCard(player_id=1) not in get_legal_actions(blocked, 1)
+
+    base = replace(
+        blocked,
+        players={
+            1: replace(blocked.players[1], new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}),
+            2: replace(blocked.players[2], resources={**blocked.players[2].resources, ResourceType.BRICK: 3}),
+        },
+    )
+    started_a = apply_action(base, PlayMonopolyCard(player_id=1))
+    started_b = apply_action(base, PlayMonopolyCard(player_id=1))
+    after_a = apply_action(started_a, ChooseMonopolyResource(player_id=1, resource=ResourceType.BRICK))
+    after_b = apply_action(started_b, ChooseMonopolyResource(player_id=1, resource=ResourceType.BRICK))
+    assert after_a == after_b
+    assert after_a.players[1].resources[ResourceType.BRICK] == 3
+    assert after_a.players[2].resources[ResourceType.BRICK] == 0
+
+
+def test_dev_card_subflow_legal_actions_and_hidden_info_regression_guard() -> None:
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.ROAD_BUILDING] = 1
+    cards[DevelopmentCardType.KNIGHT] = 1
+    state = replace(
+        state,
+        players={
+            1: replace(state.players[1], dev_cards=cards, new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}),
+            2: state.players[2],
+        },
+        placed=PlacedPieces(settlements={0: 1}, roads={}, cities={}),
+    )
+    legal = get_legal_actions(state, 1)
+    assert PlayKnightCard(player_id=1) in legal
+    assert PlayRoadBuildingCard(player_id=1) in legal
+
+    started = apply_action(state, PlayRoadBuildingCard(player_id=1))
+    subflow_legal = get_legal_actions(started, 1)
+    assert any(isinstance(action, BuildRoad) for action in subflow_legal)
+    assert FinishRoadBuildingCard(player_id=1) in subflow_legal
+    obs = get_observation(started, 2, debug=False)
+    p1_public = next(view for view in obs.players_public if view.player_id == 1)
+    assert p1_public.dev_card_count == 1

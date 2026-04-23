@@ -10,15 +10,21 @@ from catan.core.models.action import (
     BuildRoad,
     BuildSettlement,
     BuyDevelopmentCard,
+    ChooseMonopolyResource,
     ChooseTradePartner,
+    ChooseYearOfPlentyResources,
     DiscardResources,
     EndTurn,
+    FinishRoadBuildingCard,
     ProposePlayerTrade,
     RejectTradeResponses,
     RespondToTradeInterested,
     RespondToTradePass,
     RollDice,
     PlayKnightCard,
+    PlayMonopolyCard,
+    PlayRoadBuildingCard,
+    PlayYearOfPlentyCard,
 )
 from catan.core.models.enums import DevelopmentCardType, PlayerTradePhase, ResourceType, TurnStep
 from catan.core.models.state import GameState
@@ -63,6 +69,7 @@ class PygameApp:
         trade_draft_offered = {r: 0 for r in ResourceType}
         trade_draft_requested = {r: 0 for r in ResourceType}
         trade_window_open = False
+        year_of_plenty_selected = {r: 0 for r in ResourceType}
 
         running = True
         while running:
@@ -121,6 +128,19 @@ class PygameApp:
                     "selected_rects": {},
                     "hand_rects": {},
                 }
+            dev_card_ui = None
+            if state.turn and state.turn.step == TurnStep.YEAR_OF_PLENTY:
+                dev_card_ui = {
+                    "mode": "year_of_plenty",
+                    "selected": year_of_plenty_selected,
+                    "resource_rects": {},
+                    "submit_rect": None,
+                }
+            elif state.turn and state.turn.step == TurnStep.MONOPOLY:
+                dev_card_ui = {
+                    "mode": "monopoly",
+                    "resource_rects": {},
+                }
             drawn = renderer.render(
                 screen,
                 state,
@@ -135,6 +155,7 @@ class PygameApp:
                 build_mode=build_mode,
                 trade_ui=trade_ui,
                 discard_ui=discard_ui,
+                dev_card_ui=dev_card_ui,
                 event_log_offset=event_log_offset,
             )
 
@@ -173,6 +194,14 @@ class PygameApp:
                         if discard_action is not None:
                             selected_action_text = str(discard_action)
                             controllers[active_player].submit_action_intent(discard_action)
+                        continue
+                    if dev_card_ui is not None:
+                        dev_flow_action = self._handle_dev_card_overlay_click(event.pos, dev_card_ui, active_player, legal, year_of_plenty_selected)
+                        if dev_flow_action is not None:
+                            selected_action_text = str(dev_flow_action)
+                            controllers[active_player].submit_action_intent(dev_flow_action)
+                            if isinstance(dev_flow_action, ChooseYearOfPlentyResources):
+                                year_of_plenty_selected = {r: 0 for r in ResourceType}
                         continue
                     clicked_action = self._handle_action_button_click(
                         event.pos,
@@ -286,6 +315,8 @@ class PygameApp:
                         trade_window_open = False
                         trade_draft_offered = {r: 0 for r in ResourceType}
                         trade_draft_requested = {r: 0 for r in ResourceType}
+                    if state.turn is None or state.turn.step != TurnStep.YEAR_OF_PLENTY:
+                        year_of_plenty_selected = {r: 0 for r in ResourceType}
                     event_log_offset = 0
 
             self.pg.display.flip()
@@ -359,6 +390,35 @@ class PygameApp:
                 return None
         if discard_ui["continue_button_rect"].collidepoint(pos) and sum(selection.values()) == required:
             return self._to_discard_action(active_player, selection)
+        return None
+
+    def _handle_dev_card_overlay_click(
+        self,
+        pos: tuple[int, int],
+        dev_card_ui: dict[str, object],
+        active_player: int,
+        legal_actions: list[object],
+        year_of_plenty_selected: dict[ResourceType, int],
+    ) -> ChooseYearOfPlentyResources | ChooseMonopolyResource | None:
+        mode = dev_card_ui.get("mode")
+        if mode == "year_of_plenty":
+            for resource, rect in dev_card_ui["resource_rects"].items():
+                if rect.collidepoint(pos):
+                    if sum(year_of_plenty_selected.values()) < 2:
+                        year_of_plenty_selected[resource] += 1
+                    return None
+            if dev_card_ui["submit_rect"] is not None and dev_card_ui["submit_rect"].collidepoint(pos):
+                picked = [resource for resource, amount in year_of_plenty_selected.items() for _ in range(amount)]
+                if len(picked) != 2:
+                    return None
+                action = ChooseYearOfPlentyResources(player_id=active_player, first_resource=picked[0], second_resource=picked[1])
+                return action if action in legal_actions else None
+            return None
+        if mode == "monopoly":
+            for resource, rect in dev_card_ui["resource_rects"].items():
+                if rect.collidepoint(pos):
+                    action = ChooseMonopolyResource(player_id=active_player, resource=resource)
+                    return action if action in legal_actions else None
         return None
 
     def _to_discard_action(self, player_id: int, selection: dict[ResourceType, int]) -> DiscardResources:
@@ -468,6 +528,9 @@ class PygameApp:
             end = next((a for a in legal_actions if isinstance(a, EndTurn)), None)
             if end is not None:
                 return end
+            done = next((a for a in legal_actions if isinstance(a, FinishRoadBuildingCard)), None)
+            if done is not None:
+                return done
         if button_rects.get("dice") and button_rects["dice"].collidepoint(pos):
             roll = next((a for a in legal_actions if isinstance(a, RollDice)), None)
             if roll is not None:
@@ -476,11 +539,19 @@ class PygameApp:
             return "trade_cancel"
         return None
 
-    def _dev_card_click_action(self, pos: tuple[int, int], dev_card_rects: dict[DevelopmentCardType, object], legal_actions: list[object]) -> PlayKnightCard | None:
-        knight_rect = dev_card_rects.get(DevelopmentCardType.KNIGHT)
-        if knight_rect is None or not knight_rect.collidepoint(pos):
-            return None
-        return next((action for action in legal_actions if isinstance(action, PlayKnightCard)), None)
+    def _dev_card_click_action(self, pos: tuple[int, int], dev_card_rects: dict[DevelopmentCardType, object], legal_actions: list[object]) -> object | None:
+        for card_type, rect in dev_card_rects.items():
+            if not rect.collidepoint(pos):
+                continue
+            if card_type == DevelopmentCardType.KNIGHT:
+                return next((action for action in legal_actions if isinstance(action, PlayKnightCard)), None)
+            if card_type == DevelopmentCardType.ROAD_BUILDING:
+                return next((action for action in legal_actions if isinstance(action, PlayRoadBuildingCard)), None)
+            if card_type == DevelopmentCardType.YEAR_OF_PLENTY:
+                return next((action for action in legal_actions if isinstance(action, PlayYearOfPlentyCard)), None)
+            if card_type == DevelopmentCardType.MONOPOLY:
+                return next((action for action in legal_actions if isinstance(action, PlayMonopolyCard)), None)
+        return None
 
     def _handle_trade_overlay_click(
         self,
@@ -652,6 +723,38 @@ class PygameApp:
         if acting_player is not None and after.players[acting_player].knights_played > before.players[acting_player].knights_played:
             lines.append(f"P{acting_player} played a Knight card")
             lines.append(f"P{acting_player} now has {after.players[acting_player].knights_played} Knights played")
+        if acting_player is not None and before.turn and before.turn.step == TurnStep.ACTIONS and after.turn:
+            if after.turn.step == TurnStep.ROAD_BUILDING:
+                lines.append(f"P{acting_player} played Road Building")
+            if after.turn.step == TurnStep.YEAR_OF_PLENTY:
+                lines.append(f"P{acting_player} played Year of Plenty")
+            if after.turn.step == TurnStep.MONOPOLY:
+                lines.append(f"P{acting_player} played Monopoly")
+        if acting_player is not None and before.turn and after.turn:
+            if before.turn.step == TurnStep.ROAD_BUILDING and after.turn.step == TurnStep.ACTIONS:
+                roads_before = sum(1 for _, owner in before.placed.roads.items() if owner == acting_player)
+                roads_after = sum(1 for _, owner in after.placed.roads.items() if owner == acting_player)
+                gained = max(roads_after - roads_before, 0)
+                lines.append(f"P{acting_player} placed {gained} free roads")
+            if before.turn.step == TurnStep.YEAR_OF_PLENTY and after.turn.step == TurnStep.ACTIONS:
+                gains = []
+                for resource in ResourceType:
+                    delta = after.players[acting_player].resources.get(resource, 0) - before.players[acting_player].resources.get(resource, 0)
+                    if delta > 0:
+                        gains.append(f"{delta} {self._resource_name(resource)}")
+                if gains:
+                    lines.append(f"P{acting_player} received {' and '.join(gains)}")
+            if before.turn.step == TurnStep.MONOPOLY and after.turn.step == TurnStep.ACTIONS:
+                collected_total = 0
+                chosen_resource: ResourceType | None = None
+                for resource in ResourceType:
+                    delta = after.players[acting_player].resources.get(resource, 0) - before.players[acting_player].resources.get(resource, 0)
+                    if delta > 0:
+                        collected_total = delta
+                        chosen_resource = resource
+                if chosen_resource is not None:
+                    lines.append(f"P{acting_player} played Monopoly on {self._resource_name(chosen_resource)}")
+                    lines.append(f"P{acting_player} collected {collected_total} {self._resource_name(chosen_resource)}")
         if before.largest_army_holder != after.largest_army_holder:
             if before.largest_army_holder is not None:
                 lines.append(f"P{before.largest_army_holder} lost Largest Army")

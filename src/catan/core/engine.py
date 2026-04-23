@@ -9,7 +9,13 @@ from .models.action import (
     BuildRoad,
     BuildSettlement,
     BuyDevelopmentCard,
+    ChooseMonopolyResource,
     PlayKnightCard,
+    PlayMonopolyCard,
+    PlayRoadBuildingCard,
+    PlayYearOfPlentyCard,
+    ChooseYearOfPlentyResources,
+    FinishRoadBuildingCard,
     DiscardResources,
     EndTurn,
     MoveRobber,
@@ -26,7 +32,7 @@ from .models.action import (
 )
 from .models.board import EdgeId, NodeId, PlayerId, TileId
 from .models.enums import DevelopmentCardType, GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
-from .models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, PlayerTradeState, SetupState, TurnState
+from .models.state import DevCardFlowState, GameState, InitialGameConfig, PlacedPieces, PlayerState, PlayerTradeState, SetupState, TurnState
 from .observer import DebugObservation, Observation, PlayerObservation, PublicPlayerView
 from .rng import next_u32, roll_two_d6
 
@@ -120,6 +126,24 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
         return [MoveRobber(player_id=player_id, tile_id=tile.id) for tile in state.board.tiles if tile.id != state.robber_tile_id]
     if state.turn.step == TurnStep.ROBBER_STEAL:
         return [StealResource(player_id=player_id, target_player_id=target) for target in _eligible_robber_targets(state, player_id)]
+    if state.turn.step == TurnStep.ROAD_BUILDING:
+        legal_actions = [BuildRoad(player_id=player_id, edge_id=edge_id) for edge_id in _legal_road_edges(state, player_id, require_resources=False)]
+        legal_actions.append(FinishRoadBuildingCard(player_id=player_id))
+        return legal_actions
+    if state.turn.step == TurnStep.YEAR_OF_PLENTY:
+        legal_actions: list[Action] = []
+        for first in ResourceType:
+            for second in ResourceType:
+                legal_actions.append(
+                    ChooseYearOfPlentyResources(
+                        player_id=player_id,
+                        first_resource=first,
+                        second_resource=second,
+                    )
+                )
+        return legal_actions
+    if state.turn.step == TurnStep.MONOPOLY:
+        return [ChooseMonopolyResource(player_id=player_id, resource=resource) for resource in ResourceType]
 
     legal_actions: list[Action] = [EndTurn(player_id=player_id)]
     legal_actions.extend(BuildRoad(player_id=player_id, edge_id=edge_id) for edge_id in _legal_road_edges(state, player_id))
@@ -131,6 +155,12 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
         legal_actions.append(BuyDevelopmentCard(player_id=player_id))
     if _can_play_knight_card(state, player_id):
         legal_actions.append(PlayKnightCard(player_id=player_id))
+    if _can_play_dev_card(state, player_id, DevelopmentCardType.ROAD_BUILDING):
+        legal_actions.append(PlayRoadBuildingCard(player_id=player_id))
+    if _can_play_dev_card(state, player_id, DevelopmentCardType.YEAR_OF_PLENTY):
+        legal_actions.append(PlayYearOfPlentyCard(player_id=player_id))
+    if _can_play_dev_card(state, player_id, DevelopmentCardType.MONOPOLY):
+        legal_actions.append(PlayMonopolyCard(player_id=player_id))
     legal_actions.extend(_legal_bank_trades(state, player_id))
     return legal_actions
 
@@ -163,6 +193,18 @@ def apply_action(state: GameState, action: Action) -> GameState:
         return _apply_buy_development_card(state, action)
     if isinstance(action, PlayKnightCard):
         return _apply_play_knight_card(state, action)
+    if isinstance(action, PlayRoadBuildingCard):
+        return _apply_play_road_building_card(state, action)
+    if isinstance(action, FinishRoadBuildingCard):
+        return _apply_finish_road_building_card(state, action)
+    if isinstance(action, PlayYearOfPlentyCard):
+        return _apply_play_year_of_plenty_card(state, action)
+    if isinstance(action, ChooseYearOfPlentyResources):
+        return _apply_choose_year_of_plenty_resources(state, action)
+    if isinstance(action, PlayMonopolyCard):
+        return _apply_play_monopoly_card(state, action)
+    if isinstance(action, ChooseMonopolyResource):
+        return _apply_choose_monopoly_resource(state, action)
     if isinstance(action, BankTrade):
         return _apply_bank_trade(state, action)
     if isinstance(action, ProposePlayerTrade):
@@ -276,9 +318,11 @@ def _legal_setup_road_edges(state: GameState, player_id: PlayerId) -> list[EdgeI
     return [edge_id for edge_id in state.board.node_to_adjacent_edges.get(origin, ()) if edge_id not in state.placed.roads]
 
 
-def _legal_road_edges(state: GameState, player_id: PlayerId) -> list[EdgeId]:
+def _legal_road_edges(state: GameState, player_id: PlayerId, *, require_resources: bool = True) -> list[EdgeId]:
     player = state.players[player_id]
-    if player.roads_left <= 0 or not _has_resources(player, ROAD_COST):
+    if player.roads_left <= 0:
+        return []
+    if require_resources and not _has_resources(player, ROAD_COST):
         return []
     anchors = set(_player_anchor_nodes(state, player_id))
     return [edge.id for edge in state.board.edges if edge.id not in state.placed.roads and (edge.node_a in anchors or edge.node_b in anchors)]
@@ -564,13 +608,38 @@ def _next_discard_player(requirements: dict[PlayerId, int]) -> PlayerId | None:
 
 
 def _apply_build_road(state: GameState, action: BuildRoad) -> GameState:
-    player = _pay_cost(state.players[action.player_id], ROAD_COST)
+    is_free_road = (
+        state.dev_card_flow is not None
+        and state.dev_card_flow.card_type == DevelopmentCardType.ROAD_BUILDING
+        and state.turn is not None
+        and state.turn.step == TurnStep.ROAD_BUILDING
+    )
+    player = state.players[action.player_id] if is_free_road else _pay_cost(state.players[action.player_id], ROAD_COST)
     roads = {**state.placed.roads, action.edge_id: action.player_id}
+    updated_player = replace(player, roads_left=player.roads_left - 1)
     next_state = replace(
         state,
-        players={**state.players, action.player_id: replace(player, roads_left=player.roads_left - 1)},
+        players={**state.players, action.player_id: updated_player},
         placed=replace(state.placed, roads=roads),
     )
+    if is_free_road and next_state.dev_card_flow is not None:
+        flow = next_state.dev_card_flow
+        remaining = max(flow.roads_remaining - 1, 0)
+        placed = flow.roads_placed + 1
+        if remaining <= 0:
+            next_state = replace(
+                next_state,
+                turn=replace(next_state.turn, step=TurnStep.ACTIONS, priority_player=None),
+                dev_card_flow=None,
+            )
+        else:
+            next_state = replace(next_state, dev_card_flow=replace(flow, roads_remaining=remaining, roads_placed=placed))
+            if not _legal_road_edges(next_state, action.player_id, require_resources=False):
+                next_state = replace(
+                    next_state,
+                    turn=replace(next_state.turn, step=TurnStep.ACTIONS, priority_player=None),
+                    dev_card_flow=None,
+                )
     next_state = _recompute_longest_road_state(next_state)
     return _update_winner(next_state, action.player_id)
 
@@ -631,6 +700,99 @@ def _apply_play_knight_card(state: GameState, action: PlayKnightCard) -> GameSta
     )
     next_state = _recompute_largest_army_state(next_state)
     return _update_winner(next_state, action.player_id)
+
+
+def _apply_play_road_building_card(state: GameState, action: PlayRoadBuildingCard) -> GameState:
+    player = state.players[action.player_id]
+    dev_cards = dict(player.dev_cards)
+    dev_cards[DevelopmentCardType.ROAD_BUILDING] -= 1
+    updated_player = replace(player, dev_cards=dev_cards)
+    flow = DevCardFlowState(card_type=DevelopmentCardType.ROAD_BUILDING, roads_remaining=2, roads_placed=0)
+    next_state = replace(
+        state,
+        players={**state.players, action.player_id: updated_player},
+        turn=replace(state.turn, step=TurnStep.ROAD_BUILDING, priority_player=action.player_id),
+        dev_card_flow=flow,
+    )
+    if not _legal_road_edges(next_state, action.player_id, require_resources=False):
+        return replace(
+            next_state,
+            turn=replace(next_state.turn, step=TurnStep.ACTIONS, priority_player=None),
+            dev_card_flow=None,
+        )
+    return next_state
+
+
+def _apply_finish_road_building_card(state: GameState, action: FinishRoadBuildingCard) -> GameState:
+    return replace(
+        state,
+        turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
+        dev_card_flow=None,
+    )
+
+
+def _apply_play_year_of_plenty_card(state: GameState, action: PlayYearOfPlentyCard) -> GameState:
+    player = state.players[action.player_id]
+    dev_cards = dict(player.dev_cards)
+    dev_cards[DevelopmentCardType.YEAR_OF_PLENTY] -= 1
+    updated_player = replace(player, dev_cards=dev_cards)
+    return replace(
+        state,
+        players={**state.players, action.player_id: updated_player},
+        turn=replace(state.turn, step=TurnStep.YEAR_OF_PLENTY, priority_player=action.player_id),
+        dev_card_flow=DevCardFlowState(card_type=DevelopmentCardType.YEAR_OF_PLENTY),
+    )
+
+
+def _apply_choose_year_of_plenty_resources(state: GameState, action: ChooseYearOfPlentyResources) -> GameState:
+    player = state.players[action.player_id]
+    resources = dict(player.resources)
+    resources[action.first_resource] += 1
+    resources[action.second_resource] += 1
+    return replace(
+        state,
+        players={**state.players, action.player_id: replace(player, resources=resources)},
+        turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
+        dev_card_flow=None,
+    )
+
+
+def _apply_play_monopoly_card(state: GameState, action: PlayMonopolyCard) -> GameState:
+    player = state.players[action.player_id]
+    dev_cards = dict(player.dev_cards)
+    dev_cards[DevelopmentCardType.MONOPOLY] -= 1
+    updated_player = replace(player, dev_cards=dev_cards)
+    return replace(
+        state,
+        players={**state.players, action.player_id: updated_player},
+        turn=replace(state.turn, step=TurnStep.MONOPOLY, priority_player=action.player_id),
+        dev_card_flow=DevCardFlowState(card_type=DevelopmentCardType.MONOPOLY),
+    )
+
+
+def _apply_choose_monopoly_resource(state: GameState, action: ChooseMonopolyResource) -> GameState:
+    players = dict(state.players)
+    collector = players[action.player_id]
+    total_collected = 0
+    for player_id, player in state.players.items():
+        if player_id == action.player_id:
+            continue
+        amount = player.resources.get(action.resource, 0)
+        if amount <= 0:
+            continue
+        total_collected += amount
+        next_res = dict(player.resources)
+        next_res[action.resource] = 0
+        players[player_id] = replace(player, resources=next_res)
+    collector_res = dict(collector.resources)
+    collector_res[action.resource] += total_collected
+    players[action.player_id] = replace(collector, resources=collector_res)
+    return replace(
+        state,
+        players=players,
+        turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
+        dev_card_flow=None,
+    )
 
 
 def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
@@ -870,6 +1032,16 @@ def _can_play_knight_card(state: GameState, player_id: PlayerId) -> bool:
     player = state.players[player_id]
     playable_knights = player.dev_cards.get(DevelopmentCardType.KNIGHT, 0) - player.new_dev_cards.get(DevelopmentCardType.KNIGHT, 0)
     return playable_knights > 0
+
+
+def _can_play_dev_card(state: GameState, player_id: PlayerId, card_type: DevelopmentCardType) -> bool:
+    if state.turn is None or state.turn.step != TurnStep.ACTIONS:
+        return False
+    if state.turn.current_player != player_id:
+        return False
+    player = state.players[player_id]
+    playable = player.dev_cards.get(card_type, 0) - player.new_dev_cards.get(card_type, 0)
+    return playable > 0
 
 
 def _total_victory_points(state: GameState, player_id: PlayerId) -> int:

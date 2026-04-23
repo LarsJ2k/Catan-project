@@ -34,6 +34,9 @@ class TurnStep(Enum):
     ROBBER_STEAL = auto()
     ACTIONS = auto()
     PLAYER_TRADE = auto()
+    ROAD_BUILDING = auto()
+    YEAR_OF_PLENTY = auto()
+    MONOPOLY = auto()
 
 
 class PlayerTradePhase(Enum):
