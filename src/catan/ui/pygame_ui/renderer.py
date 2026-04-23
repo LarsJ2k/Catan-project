@@ -161,7 +161,15 @@ class PygameRenderer:
         )
         hand_player = active_player if hand_view_player is None else hand_view_player
         if spectator_mode:
-            dev_card_rects = self._draw_spectator_dashboard(screen, state, active_player, panel_x, height, bottom_bar_height)
+            dev_card_rects = self._draw_spectator_dashboard(
+                screen,
+                state,
+                active_player,
+                panel_x,
+                height,
+                bottom_bar_height,
+                spectator_data or {},
+            )
         else:
             dev_card_rects = self._draw_bottom_bar(
                 screen, state, hand_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui, legal_actions
@@ -475,6 +483,7 @@ class PygameRenderer:
         panel_x: int,
         height: int,
         bottom_h: int,
+        spectator_data: dict[str, object],
     ) -> dict[DevelopmentCardType, object]:
         bar_y = height - bottom_h
         self.pg.draw.rect(screen, (34, 34, 40), (0, bar_y, panel_x, bottom_h))
@@ -492,6 +501,7 @@ class PygameRenderer:
         cell_h = max((bottom_h - top_pad * 2 - row_gap) // rows, 56)
         resources = [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]
         dev_types = [DevelopmentCardType.KNIGHT, DevelopmentCardType.ROAD_BUILDING, DevelopmentCardType.YEAR_OF_PLENTY, DevelopmentCardType.MONOPOLY, DevelopmentCardType.VICTORY_POINT]
+        player_bot_names = spectator_data.get("player_bot_names", {})
         for idx, player_id in enumerate(players[:4]):
             base_col = 0 if idx in (0, 2) else 2
             row = 0 if idx < 2 else 1
@@ -504,19 +514,22 @@ class PygameRenderer:
             self.pg.draw.rect(screen, border, player_rect, width=3 if player_id == active_player else 1, border_radius=6)
             divider_x = dx - (card_gap // 2)
             self.pg.draw.line(screen, (74, 74, 86), (divider_x, y + 3), (divider_x, y + cell_h - 3), 1)
-            screen.blit(self.small_font.render(f"P{player_id} Resources", True, (230, 230, 236)), (px + 6, y + 4))
-            screen.blit(self.small_font.render(f"P{player_id} Dev", True, (230, 230, 236)), (dx + 6, y + 4))
+            bot_name = player_bot_names.get(player_id, "?")
+            player_label = f"P{player_id} {bot_name}"
+            screen.blit(self.small_font.render(player_label, True, self._player_color(player_id)), (px + 6, y + 4))
             player = state.players[player_id]
             row_y = y + 22
             section_padding = 6
             card_width = max((cell_w - section_padding * 2 - card_gap * 4) // 5, 20)
             card_height = max(cell_h - 30, 34)
-            for card_idx, resource in enumerate(resources):
+            owned_resources = [resource for resource in resources if player.resources.get(resource, 0) > 0]
+            for card_idx, resource in enumerate(owned_resources):
                 card_x = px + section_padding + card_idx * (card_width + card_gap)
                 amount = player.resources.get(resource, 0)
                 self._draw_resource_card(screen, card_x, row_y, card_width, card_height, resource, amount, compact=True)
             dev_card_width = max((cell_w - section_padding * 2 - card_gap * 4) // 5, 20)
-            for card_idx, card_type in enumerate(dev_types):
+            owned_dev_cards = [card_type for card_type in dev_types if player.dev_cards.get(card_type, 0) > 0]
+            for card_idx, card_type in enumerate(owned_dev_cards):
                 card_x = dx + section_padding + card_idx * (dev_card_width + card_gap)
                 amount = player.dev_cards.get(card_type, 0)
                 self.pg.draw.rect(screen, (78, 88, 112), (card_x, row_y, dev_card_width, card_height), border_radius=4)
