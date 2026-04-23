@@ -162,6 +162,15 @@ def test_decision_panel_shows_scored_candidates_for_v1_heuristic_payload() -> No
     assert "+124.80" in ui["candidate_lines"][0]
 
 
+def test_spectator_bot_name_is_short_class_variant() -> None:
+    app = PygameApp(DummyPygame())
+
+    class HeuristicV1_1BotController:
+        pass
+
+    assert app._spectator_bot_name(HeuristicV1_1BotController()) == "HeuristicV1_1"
+
+
 def test_spectator_dashboard_shows_all_players_and_active_outline() -> None:
     renderer = PygameRenderer.__new__(PygameRenderer)
     renderer._player_color = PygameRenderer._player_color.__get__(renderer, PygameRenderer)
