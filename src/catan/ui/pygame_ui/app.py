@@ -898,6 +898,10 @@ class PygameApp:
                 spectator_data={
                     "player_decisions": spectator_decision_history,
                     "speed": spectator_speed,
+                    "player_bot_names": {
+                        player_id: controller_label(controller)
+                        for player_id, controller in controllers.items()
+                    },
                 },
                 show_game_over_overlay=show_game_over_overlay,
             )
