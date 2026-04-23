@@ -169,8 +169,12 @@ class PygameApp:
                     self.pg.draw.rect(screen, (78, 86, 122) if is_dropdown_open else (60, 60, 90), rect)
                     label = f"Player {slot.player_id}: {controller_labels.get(slot.controller_type, slot.controller_type.value)}"
                     screen.blit(small_font.render(label, True, (255, 255, 255)), (rect.x + 10, rect.y + 8))
-                    indicator = "▾" if is_dropdown_open else "▸"
-                    screen.blit(small_font.render(indicator, True, (220, 220, 235)), (rect.right - 24, rect.y + 7))
+                    self._draw_dropdown_indicator(
+                        screen,
+                        center=(rect.right - 16, rect.y + rect.height // 2),
+                        open_state=is_dropdown_open,
+                        color=(220, 220, 235),
+                    )
                 self.pg.draw.rect(screen, (80, 80, 120), seed_slider_rect, border_radius=18)
                 slider_mid_x = seed_slider_rect.centerx
                 self.pg.draw.line(
@@ -533,13 +537,11 @@ class PygameApp:
         return state
 
     def _draw_settings_ui(self, screen, *, menu_open: bool) -> dict[str, object]:
-        font = self.pg.font.SysFont("arial", 24)
         small_font = self.pg.font.SysFont("arial", 18)
         width, _ = screen.get_size()
         settings_rect = self.pg.Rect(width - 52, 12, 40, 40)
         self.pg.draw.rect(screen, (60, 60, 70), settings_rect, border_radius=8)
-        gear_text = font.render("⚙", True, (240, 240, 240))
-        screen.blit(gear_text, (settings_rect.x + 10, settings_rect.y + 5))
+        self._draw_settings_gear(screen, settings_rect)
         ui: dict[str, object] = {"settings_button_rect": settings_rect}
         if not menu_open:
             return ui
@@ -574,6 +576,39 @@ class PygameApp:
         if settings_ui["settings_menu_rect"].collidepoint(pos):
             return "menu"
         return None
+
+    def _draw_dropdown_indicator(
+        self,
+        screen,
+        *,
+        center: tuple[int, int],
+        open_state: bool,
+        color: tuple[int, int, int],
+    ) -> None:
+        cx, cy = center
+        if open_state:
+            points = [(cx - 6, cy - 2), (cx + 6, cy - 2), (cx, cy + 5)]
+        else:
+            points = [(cx - 3, cy - 6), (cx - 3, cy + 6), (cx + 4, cy)]
+        self.pg.draw.polygon(screen, color, points)
+
+    def _draw_settings_gear(self, screen, rect) -> None:
+        cx, cy = rect.centerx, rect.centery
+        accent = (240, 240, 240)
+        self.pg.draw.circle(screen, accent, (cx, cy), 9, width=2)
+        self.pg.draw.circle(screen, accent, (cx, cy), 3)
+        spokes = [
+            (0, -13, 0, -9),
+            (0, 13, 0, 9),
+            (-13, 0, -9, 0),
+            (13, 0, 9, 0),
+            (-9, -9, -6, -6),
+            (9, -9, 6, -6),
+            (-9, 9, -6, 6),
+            (9, 9, 6, 6),
+        ]
+        for sx, sy, ex, ey in spokes:
+            self.pg.draw.line(screen, accent, (cx + sx, cy + sy), (cx + ex, cy + ey), 2)
 
     def _sync_discard_selection(
         self,

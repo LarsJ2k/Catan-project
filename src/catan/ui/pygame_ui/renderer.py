@@ -296,8 +296,8 @@ class PygameRenderer:
         down_rect = self.pg.Rect(panel_x + panel_width - 34, y - 2, 22, 20)
         self.pg.draw.rect(screen, (60, 60, 70), up_rect, border_radius=3)
         self.pg.draw.rect(screen, (60, 60, 70), down_rect, border_radius=3)
-        screen.blit(self.small_font.render("˄", True, (230, 230, 230)), (up_rect.x + 8, up_rect.y + 2))
-        screen.blit(self.small_font.render("˅", True, (230, 230, 230)), (down_rect.x + 8, down_rect.y + 2))
+        self._draw_triangle_icon(screen, up_rect, direction="up", color=(230, 230, 230))
+        self._draw_triangle_icon(screen, down_rect, direction="down", color=(230, 230, 230))
         y += 24
         event_end = int(height * 0.34)
         log_line_height = 16
@@ -356,6 +356,14 @@ class PygameRenderer:
         }
         self._draw_sidebar_buttons(screen, state, legal_actions, can_roll, can_end, panel_x, panel_width, height, action_button_rects)
         return roll_rect, end_rect, action_button_rects, up_rect, down_rect
+
+    def _draw_triangle_icon(self, screen, rect, *, direction: str, color: tuple[int, int, int]) -> None:
+        cx, cy = rect.centerx, rect.centery
+        if direction == "up":
+            points = [(cx, cy - 4), (cx - 5, cy + 3), (cx + 5, cy + 3)]
+        else:
+            points = [(cx - 5, cy - 3), (cx + 5, cy - 3), (cx, cy + 4)]
+        self.pg.draw.polygon(screen, color, points)
 
     def _draw_bottom_bar(
         self,
