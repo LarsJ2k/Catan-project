@@ -11,7 +11,6 @@ from statistics import mean
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
 from catan.core.models.state import InitialGameConfig
-from catan.runners.game_setup import ControllerType
 from catan.runners.game_setup import GameLaunchConfig, PlayerSlotConfig
 from catan.runners.headless_runner import HeadlessRunner
 from catan.runners.launcher import create_controllers
@@ -32,38 +31,38 @@ class TournamentOutputOptions:
 
 @dataclass(frozen=True)
 class TournamentConfig:
-    selected_bots: tuple[ControllerType, ...]
+    selected_bots: tuple[str, ...]
     format: TournamentFormat
     seed_blocks: int
     seat_rotation_enabled: bool = True
     base_seed: int = 1
-    fixed_lineup: tuple[ControllerType, ...] | None = None
+    fixed_lineup: tuple[str, ...] | None = None
     output_options: TournamentOutputOptions = TournamentOutputOptions()
 
 
 @dataclass(frozen=True)
 class MatchConfig:
-    lineup: tuple[ControllerType, ...]
+    lineup: tuple[str, ...]
     seed: int
-    seat_order: tuple[ControllerType, ...]
+    seat_order: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class MatchResult:
-    lineup: tuple[ControllerType, ...]
-    seat_order: tuple[ControllerType, ...]
+    lineup: tuple[str, ...]
+    seat_order: tuple[str, ...]
     seed: int
-    winner: ControllerType | None
+    winner: str | None
     final_vp_by_seat: tuple[int, int, int, int]
     turn_count: int
     rank_by_seat: tuple[int, int, int, int]
-    largest_army_holder: ControllerType | None
-    longest_road_holder: ControllerType | None
+    largest_army_holder: str | None
+    longest_road_holder: str | None
 
 
 @dataclass(frozen=True)
 class BotAggregate:
-    bot_id: ControllerType
+    bot_id: str
     games_played: int
     wins: int
     win_rate: float
@@ -79,15 +78,15 @@ class BotAggregate:
 class TournamentResult:
     config: TournamentConfig
     matches: tuple[MatchResult, ...]
-    aggregates: dict[ControllerType, BotAggregate]
+    aggregates: dict[str, BotAggregate]
 
 
 
-def _rotated(order: tuple[ControllerType, ...], shift: int) -> tuple[ControllerType, ...]:
+def _rotated(order: tuple[str, ...], shift: int) -> tuple[str, ...]:
     return order[shift:] + order[:shift]
 
 
-def generate_lineups(config: TournamentConfig) -> tuple[tuple[ControllerType, ...], ...]:
+def generate_lineups(config: TournamentConfig) -> tuple[tuple[str, ...], ...]:
     if config.format == TournamentFormat.FIXED_LINEUP_BATCH:
         lineup = config.fixed_lineup if config.fixed_lineup is not None else config.selected_bots
         if len(lineup) != 4:
@@ -131,7 +130,7 @@ class HeadlessTournamentRunner:
         seat_vps = tuple(final_state.players[idx + 1].victory_points for idx in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
-        winner_bot: ControllerType | None = None
+        winner_bot: str | None = None
         if final_state.winner is not None:
             winner_bot = match.seat_order[final_state.winner - 1]
 
@@ -164,13 +163,13 @@ def _ranks_from_vps(vps: tuple[int, int, int, int]) -> tuple[int, int, int, int]
     return tuple(ranks)
 
 
-def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[ControllerType, BotAggregate]:
-    by_bot: dict[ControllerType, list[tuple[MatchResult, int]]] = {}
+def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[str, BotAggregate]:
+    by_bot: dict[str, list[tuple[MatchResult, int]]] = {}
     for match in matches:
         for seat_index, bot in enumerate(match.seat_order):
             by_bot.setdefault(bot, []).append((match, seat_index))
 
-    aggregates: dict[ControllerType, BotAggregate] = {}
+    aggregates: dict[str, BotAggregate] = {}
     for bot, entries in by_bot.items():
         games = len(entries)
         wins = sum(1 for match, _ in entries if match.winner == bot)
@@ -217,7 +216,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
     if json_path is not None:
         payload = {
             "config": {
-                "selected_bots": [bot.value for bot in result.config.selected_bots],
+                "selected_bots": list(result.config.selected_bots),
                 "format": result.config.format.value,
                 "seed_blocks": result.config.seed_blocks,
                 "seat_rotation_enabled": result.config.seat_rotation_enabled,
@@ -225,10 +224,10 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
             },
             "matches": [
                 {
-                    "lineup": [bot.value for bot in m.lineup],
-                    "seat_order": [bot.value for bot in m.seat_order],
+                    "lineup": list(m.lineup),
+                    "seat_order": list(m.seat_order),
                     "seed": m.seed,
-                    "winner": None if m.winner is None else m.winner.value,
+                    "winner": m.winner,
                     "final_vp_by_seat": list(m.final_vp_by_seat),
                     "rank_by_seat": list(m.rank_by_seat),
                     "turn_count": m.turn_count,
@@ -236,7 +235,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                 for m in result.matches
             ],
             "aggregates": {
-                bot.value: {
+                bot: {
                     "games_played": agg.games_played,
                     "wins": agg.wins,
                     "win_rate": agg.win_rate,
@@ -260,16 +259,16 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                 writer.writerow(
                     [
                         match.seed,
-                        ";".join(bot.value for bot in match.lineup),
-                        ";".join(bot.value for bot in match.seat_order),
-                        "" if match.winner is None else match.winner.value,
+                        ";".join(match.lineup),
+                        ";".join(match.seat_order),
+                        "" if match.winner is None else match.winner,
                         *match.final_vp_by_seat,
                     ]
                 )
     return json_path, csv_path
 
-def _to_launch_config(seat_order: tuple[ControllerType, ...], seed: int) -> GameLaunchConfig:
+def _to_launch_config(seat_order: tuple[str, ...], seed: int) -> GameLaunchConfig:
     return GameLaunchConfig(
-        player_slots=tuple(PlayerSlotConfig(player_id=idx + 1, controller_type=controller) for idx, controller in enumerate(seat_order)),
+        player_slots=tuple(PlayerSlotConfig(player_id=idx + 1, controller_key=controller) for idx, controller in enumerate(seat_order)),
         seed=seed,
     )

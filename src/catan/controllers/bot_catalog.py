@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
+import re
+from typing import Callable, Mapping
 
 from catan.controllers.base import Controller
 from catan.controllers.random_bot_controller import RandomBotController
@@ -15,6 +18,16 @@ class ControllerSpec:
     label: str
     is_bot: bool
     factory: Callable[[bool], Controller]
+
+
+@dataclass(frozen=True)
+class BotDefinition:
+    bot_id: str
+    display_name: str
+    base_controller_type: ControllerType
+    description: str = ""
+    parameters: Mapping[str, float | int | str | bool] = field(default_factory=dict)
+    is_builtin: bool = False
 
 
 def _random_factory(enable_bot_delay: bool) -> Controller:
@@ -42,6 +55,27 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
 
 
 _CONTROLLER_BY_TYPE = {spec.controller_type: spec for spec in _CONTROLLER_SPECS}
+_BOT_CATALOG_FILE = Path.home() / ".catan" / "custom_bots.json"
+
+_BUILTIN_BOTS: tuple[BotDefinition, ...] = (
+    BotDefinition(
+        bot_id="random_bot",
+        display_name="Random Bot",
+        base_controller_type=ControllerType.RANDOM_BOT,
+        description="Chooses uniformly from legal actions.",
+        parameters={"seed": "", "delay_seconds": 1.2},
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_bot",
+        display_name="Heuristic Bot",
+        base_controller_type=ControllerType.HEURISTIC_BOT,
+        description="Greedy bot that scores legal actions.",
+        parameters={"seed": "", "delay_seconds": 1.2},
+        is_builtin=True,
+    ),
+)
+_BUILTIN_BY_ID = {definition.bot_id: definition for definition in _BUILTIN_BOTS}
 
 
 def list_bot_specs() -> tuple[ControllerSpec, ...]:
@@ -57,3 +91,127 @@ def build_bot_controller(controller_type: ControllerType, *, enable_bot_delay: b
     if spec is None:
         raise ValueError(f"Unknown bot controller type: {controller_type}")
     return spec.factory(enable_bot_delay)
+
+
+def _custom_store_path() -> Path:
+    return _BOT_CATALOG_FILE
+
+
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    return slug or "bot"
+
+
+def list_builtin_bot_definitions() -> tuple[BotDefinition, ...]:
+    return _BUILTIN_BOTS
+
+
+def _load_custom_bot_definitions(*, storage_path: Path | None = None) -> tuple[BotDefinition, ...]:
+    path = storage_path or _custom_store_path()
+    if not path.exists():
+        return ()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return ()
+    loaded: list[BotDefinition] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            loaded.append(
+                BotDefinition(
+                    bot_id=str(entry["bot_id"]),
+                    display_name=str(entry["display_name"]),
+                    base_controller_type=ControllerType(str(entry["base_controller_type"])),
+                    description=str(entry.get("description", "")),
+                    parameters=dict(entry.get("parameters", {})),
+                    is_builtin=False,
+                )
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+    return tuple(loaded)
+
+
+def list_bot_definitions(*, storage_path: Path | None = None) -> tuple[BotDefinition, ...]:
+    return _BUILTIN_BOTS + _load_custom_bot_definitions(storage_path=storage_path)
+
+
+def get_bot_definition(bot_id: str, *, storage_path: Path | None = None) -> BotDefinition | None:
+    return next((definition for definition in list_bot_definitions(storage_path=storage_path) if definition.bot_id == bot_id), None)
+
+
+def _write_custom_bot_definitions(definitions: tuple[BotDefinition, ...], *, storage_path: Path | None = None) -> None:
+    path = storage_path or _custom_store_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = [
+        {
+            "bot_id": definition.bot_id,
+            "display_name": definition.display_name,
+            "base_controller_type": definition.base_controller_type.value,
+            "description": definition.description,
+            "parameters": dict(definition.parameters),
+        }
+        for definition in definitions
+    ]
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def create_custom_bot_definition(
+    *,
+    name: str,
+    base_bot_id: str,
+    description: str,
+    parameters: Mapping[str, float | int | str | bool],
+    storage_path: Path | None = None,
+) -> BotDefinition:
+    trimmed = name.strip()
+    if not trimmed:
+        raise ValueError("Bot name is required.")
+    definitions = list_bot_definitions(storage_path=storage_path)
+    if any(definition.display_name == trimmed for definition in definitions):
+        raise ValueError(f"A bot named '{trimmed}' already exists.")
+    base_definition = get_bot_definition(base_bot_id, storage_path=storage_path)
+    if base_definition is None:
+        raise ValueError(f"Unknown base bot id: {base_bot_id}")
+
+    base_slug = _slugify(trimmed)
+    all_ids = {definition.bot_id for definition in definitions}
+    candidate = base_slug
+    suffix = 2
+    while candidate in all_ids:
+        candidate = f"{base_slug}_{suffix}"
+        suffix += 1
+
+    created = BotDefinition(
+        bot_id=candidate,
+        display_name=trimmed,
+        base_controller_type=base_definition.base_controller_type,
+        description=description.strip(),
+        parameters=dict(parameters),
+        is_builtin=False,
+    )
+    existing_custom = _load_custom_bot_definitions(storage_path=storage_path)
+    _write_custom_bot_definitions(existing_custom + (created,), storage_path=storage_path)
+    return created
+
+
+def build_bot_controller_from_definition(
+    bot_id: str,
+    *,
+    enable_bot_delay: bool,
+    storage_path: Path | None = None,
+) -> Controller:
+    definition = get_bot_definition(bot_id, storage_path=storage_path)
+    if definition is None:
+        raise ValueError(f"Unknown bot definition id: {bot_id}")
+    parameters = dict(definition.parameters)
+    delay_seconds_value = parameters.get("delay_seconds", 1.2)
+    delay_seconds = float(delay_seconds_value) if str(delay_seconds_value).strip() != "" else 1.2
+    seed_value = parameters.get("seed")
+    seed = None if seed_value in ("", None) else int(seed_value)
+    if definition.base_controller_type == ControllerType.RANDOM_BOT:
+        return RandomBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
+    if definition.base_controller_type == ControllerType.HEURISTIC_BOT:
+        return HeuristicBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
+    raise ValueError(f"Unsupported bot base type: {definition.base_controller_type}")

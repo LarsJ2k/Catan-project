@@ -9,6 +9,7 @@ class AppScreen(str, Enum):
     MAIN_MENU = "main_menu"
     GAME_SETUP = "game_setup"
     TOURNAMENT_SETUP = "tournament_setup"
+    BOT_LAB = "bot_lab"
 
 
 class ControllerType(str, Enum):
@@ -17,23 +18,27 @@ class ControllerType(str, Enum):
     HEURISTIC_BOT = "heuristic_bot"
 
 
-def available_controller_types() -> tuple[ControllerType, ...]:
-    return tuple(ControllerType)
+def available_controller_types() -> tuple[str, ...]:
+    from catan.controllers.bot_catalog import list_bot_definitions
+
+    return (ControllerType.HUMAN.value,) + tuple(definition.bot_id for definition in list_bot_definitions())
 
 
-def controller_label(controller_type: ControllerType) -> str:
-    labels = {
-        ControllerType.HUMAN: "Human",
-        ControllerType.RANDOM_BOT: "Random Bot",
-        ControllerType.HEURISTIC_BOT: "Heuristic Bot",
-    }
-    return labels.get(controller_type, controller_type.value)
+def controller_label(controller_key: str | None) -> str:
+    from catan.controllers.bot_catalog import get_bot_definition
+
+    if controller_key is None:
+        return "(none)"
+    if controller_key == ControllerType.HUMAN.value:
+        return "Human"
+    definition = get_bot_definition(controller_key)
+    return definition.display_name if definition is not None else controller_key
 
 
 @dataclass(frozen=True)
 class PlayerSlotConfig:
     player_id: int
-    controller_type: ControllerType
+    controller_key: str
 
 
 @dataclass(frozen=True)
@@ -45,8 +50,8 @@ class GameLaunchConfig:
 @dataclass(frozen=True)
 class GameSetupState:
     screen: AppScreen = AppScreen.MAIN_MENU
-    configured_controllers: tuple[ControllerType, ...] = ()
-    selected_controller: ControllerType | None = ControllerType.HUMAN
+    configured_controllers: tuple[str, ...] = ()
+    selected_controller: str | None = ControllerType.HUMAN.value
     use_random_seed: bool = True
     fixed_seed_text: str = ""
     max_players: int = 4
@@ -74,7 +79,7 @@ class GameSetupState:
             min_players=self.min_players,
         )
 
-    def with_selected_controller(self, controller_type: ControllerType | None) -> GameSetupState:
+    def with_selected_controller(self, controller_type: str | None) -> GameSetupState:
         return GameSetupState(
             screen=self.screen,
             configured_controllers=self.configured_controllers,
@@ -141,7 +146,7 @@ class GameSetupState:
     def configured_player_count(self) -> int:
         return len(self.configured_controllers)
 
-    def slot_controller(self, slot_index: int) -> ControllerType | None:
+    def slot_controller(self, slot_index: int) -> str | None:
         if slot_index < 0 or slot_index >= self.max_players:
             return None
         if slot_index >= len(self.configured_controllers):
@@ -150,7 +155,7 @@ class GameSetupState:
 
     def configured_player_slots(self) -> tuple[PlayerSlotConfig, ...]:
         return tuple(
-            PlayerSlotConfig(player_id=index + 1, controller_type=controller_type)
+            PlayerSlotConfig(player_id=index + 1, controller_key=controller_type)
             for index, controller_type in enumerate(self.configured_controllers)
         )
 
@@ -181,7 +186,7 @@ class GameSetupState:
 
 @dataclass(frozen=True)
 class TournamentSetupState:
-    selected_bots: tuple[ControllerType, ...] = ()
+    selected_bots: tuple[str, ...] = ()
     format: str = "fixed_lineup_batch"
     seed_blocks_text: str = "10"
     base_seed_text: str = "1"
@@ -189,8 +194,8 @@ class TournamentSetupState:
     export_json: bool = True
     export_csv: bool = True
 
-    def toggle_bot(self, controller_type: ControllerType) -> TournamentSetupState:
-        if controller_type == ControllerType.HUMAN:
+    def toggle_bot(self, controller_type: str) -> TournamentSetupState:
+        if controller_type == ControllerType.HUMAN.value:
             return self
         if controller_type in self.selected_bots:
             return TournamentSetupState(
@@ -293,7 +298,7 @@ class TournamentSetupState:
         if seed_blocks <= 0:
             return None
         format_enum = TournamentFormat(self.format)
-        fixed_lineup: tuple[ControllerType, ...] | None = None
+        fixed_lineup: tuple[str, ...] | None = None
         if format_enum == TournamentFormat.FIXED_LINEUP_BATCH:
             repeated = [self.selected_bots[idx % len(self.selected_bots)] for idx in range(4)]
             fixed_lineup = tuple(repeated)
