@@ -187,6 +187,7 @@ class GameSetupState:
 @dataclass(frozen=True)
 class TournamentSetupState:
     selected_bots: tuple[str, ...] = ()
+    selected_bot: str | None = None
     format: str = "fixed_lineup_batch"
     seed_blocks_text: str = "10"
     base_seed_text: str = "1"
@@ -200,6 +201,7 @@ class TournamentSetupState:
         if controller_type in self.selected_bots:
             return TournamentSetupState(
                 selected_bots=tuple(bot for bot in self.selected_bots if bot != controller_type),
+                selected_bot=self.selected_bot,
                 format=self.format,
                 seed_blocks_text=self.seed_blocks_text,
                 base_seed_text=self.base_seed_text,
@@ -209,6 +211,7 @@ class TournamentSetupState:
             )
         return TournamentSetupState(
             selected_bots=self.selected_bots + (controller_type,),
+            selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
             base_seed_text=self.base_seed_text,
@@ -220,6 +223,7 @@ class TournamentSetupState:
     def with_format(self, format_value: str) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
             format=format_value,
             seed_blocks_text=self.seed_blocks_text,
             base_seed_text=self.base_seed_text,
@@ -231,6 +235,7 @@ class TournamentSetupState:
     def with_seed_blocks_text(self, value: str) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=value,
             base_seed_text=self.base_seed_text,
@@ -242,6 +247,7 @@ class TournamentSetupState:
     def with_base_seed_text(self, value: str) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
             base_seed_text=value,
@@ -253,6 +259,7 @@ class TournamentSetupState:
     def with_seat_rotation_enabled(self, enabled: bool) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
             base_seed_text=self.base_seed_text,
@@ -264,6 +271,7 @@ class TournamentSetupState:
     def with_export_json(self, enabled: bool) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
             base_seed_text=self.base_seed_text,
@@ -275,12 +283,59 @@ class TournamentSetupState:
     def with_export_csv(self, enabled: bool) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
             base_seed_text=self.base_seed_text,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=enabled,
+        )
+
+    def with_selected_bot(self, controller_type: str | None) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            selected_bot=controller_type,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def add_selected_bot(self) -> TournamentSetupState:
+        if (
+            self.selected_bot is None
+            or self.selected_bot == ControllerType.HUMAN.value
+            or self.selected_bot in self.selected_bots
+        ):
+            return self
+        return TournamentSetupState(
+            selected_bots=self.selected_bots + (self.selected_bot,),
+            selected_bot=self.selected_bot,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def remove_selected_bot_at(self, slot_index: int) -> TournamentSetupState:
+        if slot_index < 0 or slot_index >= len(self.selected_bots):
+            return self
+        bots = list(self.selected_bots)
+        bots.pop(slot_index)
+        return TournamentSetupState(
+            selected_bots=tuple(bots),
+            selected_bot=self.selected_bot,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
         )
 
     def to_tournament_config(self):

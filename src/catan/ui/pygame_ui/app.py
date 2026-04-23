@@ -188,6 +188,26 @@ class PygameApp:
                             flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text + event.unicode)
                 elif flow_state.screen == AppScreen.TOURNAMENT_SETUP:
                     bot_specs = list_bot_definitions()
+                    if tournament_state.selected_bot is None and bot_specs:
+                        tournament_state = tournament_state.with_selected_bot(bot_specs[0].bot_id)
+                    configured_bot_slots = [self.pg.Rect(60, 140 + idx * 56, 360, 46) for idx in range(8)]
+                    remove_bot_rects = {
+                        idx: self.pg.Rect(slot.right - 30, slot.y + 10, 24, 24) for idx, slot in enumerate(configured_bot_slots)
+                    }
+                    add_bot_rect = self.pg.Rect(448, 228, 64, 52)
+                    available_bot_list_rect = self.pg.Rect(540, 140, width - 600, 360)
+                    option_height = 44
+                    option_gap = 8
+                    options_total_height = len(bot_specs) * (option_height + option_gap)
+                    max_bot_scroll = max(0, options_total_height - available_bot_list_rect.height)
+                    list_scroll_offset = max(0, min(list_scroll_offset, max_bot_scroll))
+                    fixed_format_rect = self.pg.Rect(60, height - 245, 220, 40)
+                    round_robin_rect = self.pg.Rect(290, height - 245, 180, 40)
+                    seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
+                    export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
+                    export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
+                    seed_minus_rect = self.pg.Rect(60, height - 145, 42, 36)
+                    seed_plus_rect = self.pg.Rect(236, height - 145, 42, 36)
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                         if back_rect.collidepoint(event.pos):
                             flow_state = flow_state.back_to_menu()
@@ -207,6 +227,53 @@ class PygameApp:
                                         f"{controller_label(bot)} - games={agg.games_played}, wins={agg.wins}, "
                                         f"win%={agg.win_rate:.3f}, avg_vp={agg.average_final_vp:.2f}, avg_rank={agg.average_rank:.2f}"
                                     )
+                            continue
+                        if fixed_format_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_format(TournamentFormat.FIXED_LINEUP_BATCH.value)
+                            continue
+                        if round_robin_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_format(TournamentFormat.ROUND_ROBIN.value)
+                            continue
+                        if seat_rotation_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_seat_rotation_enabled(not tournament_state.seat_rotation_enabled)
+                            continue
+                        if export_json_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_export_json(not tournament_state.export_json)
+                            continue
+                        if export_csv_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_export_csv(not tournament_state.export_csv)
+                            continue
+                        if seed_minus_rect.collidepoint(event.pos):
+                            new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
+                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                            continue
+                        if seed_plus_rect.collidepoint(event.pos):
+                            new_seed_blocks = int(tournament_state.seed_blocks_text or "1") + 1
+                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                            continue
+                        if add_bot_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.add_selected_bot()
+                            continue
+                        removed = False
+                        for idx, remove_rect in remove_bot_rects.items():
+                            if remove_rect.collidepoint(event.pos):
+                                tournament_state = tournament_state.remove_selected_bot_at(idx)
+                                removed = True
+                                break
+                        if removed:
+                            continue
+                        if available_bot_list_rect.collidepoint(event.pos):
+                            relative_y = event.pos[1] - available_bot_list_rect.y + list_scroll_offset
+                            option_idx = relative_y // (option_height + option_gap)
+                            if 0 <= option_idx < len(bot_specs):
+                                option_y_start = option_idx * (option_height + option_gap)
+                                if relative_y <= option_y_start + option_height:
+                                    tournament_state = tournament_state.with_selected_bot(bot_specs[option_idx].bot_id)
+                            continue
+                    if event.type == self.pg.MOUSEWHEEL:
+                        mouse_pos = self.pg.mouse.get_pos()
+                        if available_bot_list_rect.collidepoint(mouse_pos):
+                            list_scroll_offset = max(0, min(max_bot_scroll, list_scroll_offset - event.y * 28))
                     if event.type == self.pg.KEYDOWN:
                         if event.key == self.pg.K_1:
                             tournament_state = tournament_state.with_format(TournamentFormat.FIXED_LINEUP_BATCH.value)
@@ -412,33 +479,92 @@ class PygameApp:
                     screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
                 else:
                     bot_specs = list_bot_definitions()
-                    lines = [
-                        "Controls: [A..] toggle bots, [1] fixed lineup, [2] round robin, [R] seat rotation",
-                        "[J] json export, [C] csv export, [-]/[=] seed blocks, Run Tournament button to execute.",
-                        f"Format: {tournament_state.format}",
-                        f"Seed blocks: {tournament_state.seed_blocks_text}",
-                        f"Seat rotation: {'on' if tournament_state.seat_rotation_enabled else 'off'}",
-                        f"Export JSON: {'on' if tournament_state.export_json else 'off'}",
-                        f"Export CSV: {'on' if tournament_state.export_csv else 'off'}",
-                        "Selected bots:",
-                    ]
-                    y = 90
-                    for line in lines:
-                        screen.blit(small_font.render(line, True, (220, 220, 235)), (60, y))
-                        y += 30
-                    for idx, spec in enumerate(bot_specs):
-                        selected = spec.bot_id in tournament_state.selected_bots
-                        prefix = chr(ord("A") + idx)
-                        color = (150, 220, 170) if selected else (180, 180, 200)
-                        screen.blit(small_font.render(f"[{prefix}] {spec.display_name}", True, color), (80, y))
-                        y += 28
+                    if tournament_state.selected_bot is None and bot_specs:
+                        tournament_state = tournament_state.with_selected_bot(bot_specs[0].bot_id)
+                    configured_bot_slots = [self.pg.Rect(60, 140 + idx * 56, 360, 46) for idx in range(8)]
+                    remove_bot_rects = {
+                        idx: self.pg.Rect(slot.right - 30, slot.y + 10, 24, 24) for idx, slot in enumerate(configured_bot_slots)
+                    }
+                    add_bot_rect = self.pg.Rect(448, 228, 64, 52)
+                    available_bot_list_rect = self.pg.Rect(540, 140, width - 600, 360)
+                    option_height = 44
+                    option_gap = 8
+                    screen.blit(small_font.render("Tournament Bots", True, (220, 220, 235)), (60, 100))
+                    for idx, slot_rect in enumerate(configured_bot_slots):
+                        slot_bot = tournament_state.selected_bots[idx] if idx < len(tournament_state.selected_bots) else None
+                        filled = slot_bot is not None
+                        self.pg.draw.rect(screen, (60, 60, 90) if filled else (42, 42, 64), slot_rect, border_radius=8)
+                        self.pg.draw.rect(screen, (90, 100, 136), slot_rect, 1, border_radius=8)
+                        label = f"Bot {idx + 1}: {controller_label(slot_bot)}" if filled else f"Bot {idx + 1}: (empty)"
+                        screen.blit(small_font.render(label, True, (255, 255, 255) if filled else (180, 180, 200)), (slot_rect.x + 10, slot_rect.y + 12))
+                        if filled:
+                            remove_rect = remove_bot_rects[idx]
+                            self.pg.draw.rect(screen, (150, 70, 70), remove_rect, border_radius=4)
+                            screen.blit(small_font.render("X", True, (255, 255, 255)), (remove_rect.x + 6, remove_rect.y - 1))
+                    self.pg.draw.rect(screen, (80, 130, 80), add_bot_rect, border_radius=8)
+                    screen.blit(font.render("←", True, (255, 255, 255)), (add_bot_rect.x + 20, add_bot_rect.y + 5))
+                    screen.blit(small_font.render("Bot List", True, (220, 220, 235)), (available_bot_list_rect.x, 100))
+                    self.pg.draw.rect(screen, (35, 35, 52), available_bot_list_rect, border_radius=8)
+                    self.pg.draw.rect(screen, (90, 100, 136), available_bot_list_rect, 1, border_radius=8)
+                    clip_before = screen.get_clip()
+                    screen.set_clip(available_bot_list_rect)
+                    for option_idx, spec in enumerate(bot_specs):
+                        option_y = available_bot_list_rect.y + option_idx * (option_height + option_gap) - list_scroll_offset
+                        option_rect = self.pg.Rect(available_bot_list_rect.x + 6, option_y, available_bot_list_rect.width - 12, option_height)
+                        if option_rect.bottom < available_bot_list_rect.y or option_rect.y > available_bot_list_rect.bottom:
+                            continue
+                        is_selected = spec.bot_id == tournament_state.selected_bot
+                        self.pg.draw.rect(screen, (82, 110, 98) if is_selected else (58, 58, 86), option_rect, border_radius=6)
+                        border_color = (166, 220, 188) if is_selected else (80, 84, 120)
+                        self.pg.draw.rect(screen, border_color, option_rect, 2 if is_selected else 1, border_radius=6)
+                        screen.blit(small_font.render(spec.display_name, True, (248, 248, 248)), (option_rect.x + 10, option_rect.y + 10))
+                    screen.set_clip(clip_before)
+                    fixed_format_rect = self.pg.Rect(60, height - 245, 220, 40)
+                    round_robin_rect = self.pg.Rect(290, height - 245, 180, 40)
+                    self.pg.draw.rect(
+                        screen,
+                        (82, 110, 98) if tournament_state.format == TournamentFormat.FIXED_LINEUP_BATCH.value else (58, 58, 86),
+                        fixed_format_rect,
+                        border_radius=8,
+                    )
+                    self.pg.draw.rect(
+                        screen,
+                        (82, 110, 98) if tournament_state.format == TournamentFormat.ROUND_ROBIN.value else (58, 58, 86),
+                        round_robin_rect,
+                        border_radius=8,
+                    )
+                    screen.blit(small_font.render("Fixed Lineup Batch", True, (255, 255, 255)), (fixed_format_rect.x + 18, fixed_format_rect.y + 10))
+                    screen.blit(small_font.render("Round Robin", True, (255, 255, 255)), (round_robin_rect.x + 32, round_robin_rect.y + 10))
+                    seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
+                    export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
+                    export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
+                    self._draw_toggle_button(screen, small_font, seat_rotation_rect, "Seat Rotation", tournament_state.seat_rotation_enabled)
+                    self._draw_toggle_button(screen, small_font, export_json_rect, "Export JSON", tournament_state.export_json)
+                    self._draw_toggle_button(screen, small_font, export_csv_rect, "Export CSV", tournament_state.export_csv)
+                    seed_minus_rect = self.pg.Rect(60, height - 145, 42, 36)
+                    seed_plus_rect = self.pg.Rect(236, height - 145, 42, 36)
+                    self.pg.draw.rect(screen, (70, 80, 100), seed_minus_rect, border_radius=6)
+                    self.pg.draw.rect(screen, (70, 80, 100), seed_plus_rect, border_radius=6)
+                    screen.blit(font.render("-", True, (255, 255, 255)), (seed_minus_rect.x + 12, seed_minus_rect.y - 1))
+                    screen.blit(font.render("+", True, (255, 255, 255)), (seed_plus_rect.x + 9, seed_plus_rect.y - 3))
+                    screen.blit(
+                        small_font.render(f"Seed Blocks: {tournament_state.seed_blocks_text}", True, (220, 220, 235)),
+                        (112, height - 138),
+                    )
                     start_color = (70, 120, 70) if tournament_state.to_tournament_config() is not None else (80, 80, 80)
                     self.pg.draw.rect(screen, (90, 90, 90), back_rect)
                     self.pg.draw.rect(screen, start_color, start_rect)
                     screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
                     screen.blit(small_font.render("Run Tournament", True, (255, 255, 255)), (start_rect.x + 20, start_rect.y + 10))
+                    if tournament_state.to_tournament_config() is None:
+                        help_text = (
+                            "Fixed lineup needs at least 1 bot. Round robin needs at least 4 bots."
+                            if tournament_state.format == TournamentFormat.ROUND_ROBIN.value
+                            else "Select at least 1 bot to run a fixed lineup tournament."
+                        )
+                        screen.blit(small_font.render(help_text, True, (220, 130, 130)), (60, height - 98))
                     if tournament_summary_lines:
-                        y = max(y + 20, height // 2)
+                        y = max(520, height // 2)
                         screen.blit(small_font.render("Summary:", True, (240, 240, 240)), (60, y))
                         y += 30
                         for line in tournament_summary_lines[:10]:
@@ -1164,6 +1290,12 @@ class PygameApp:
             self.width, self.height = info.current_w, info.current_h
             return self.pg.display.set_mode((self.width, self.height), self.pg.FULLSCREEN)
         return self.pg.display.set_mode((self.width, self.height), self.pg.RESIZABLE)
+
+    def _draw_toggle_button(self, screen, font, rect, label: str, enabled: bool) -> None:
+        self.pg.draw.rect(screen, (82, 110, 98) if enabled else (58, 58, 86), rect, border_radius=8)
+        status = "ON" if enabled else "OFF"
+        text = f"{label}: {status}"
+        screen.blit(font.render(text, True, (255, 255, 255)), (rect.x + 10, rect.y + 9))
 
     def _board_center_and_radius(self, screen) -> tuple[tuple[int, int], int]:
         width, height = screen.get_size()
