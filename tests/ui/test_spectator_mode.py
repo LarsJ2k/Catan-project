@@ -139,6 +139,29 @@ def test_decision_panel_behavior_heuristic_vs_random() -> None:
     assert random_ui["fallback_message"] == "Random choice from 12 legal actions"
 
 
+def test_decision_panel_shows_scored_candidates_for_v1_heuristic_payload() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+
+    class HeuristicV1Bot:
+        def get_last_decision(self):
+            return {
+                "kind": "heuristic_v1_baseline",
+                "chosen_action": BuildSettlement(player_id=2, node_id=0),
+                "top_candidates": [
+                    (BuildSettlement(player_id=2, node_id=0), 124.8),
+                    (BuildRoad(player_id=2, edge_id=1), 122.1),
+                    (MoveRobber(player_id=2, tile_id=0), 98.0),
+                ],
+            }
+
+    ui = app._spectator_decision_ui(HeuristicV1Bot(), state)
+
+    assert ui["chosen_line"] == "Settlement 6-9-3"
+    assert len(ui["candidate_lines"]) == 3
+    assert "+124.80" in ui["candidate_lines"][0]
+
+
 def test_spectator_dashboard_shows_all_players_and_active_outline() -> None:
     renderer = PygameRenderer.__new__(PygameRenderer)
     renderer._player_color = PygameRenderer._player_color.__get__(renderer, PygameRenderer)
