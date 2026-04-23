@@ -46,6 +46,7 @@ class PlayerSlotConfig:
 class GameLaunchConfig:
     player_slots: tuple[PlayerSlotConfig, ...]
     seed: int
+    bot_delay_seconds: float = 1.2
 
 
 @dataclass(frozen=True)

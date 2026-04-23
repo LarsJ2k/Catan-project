@@ -223,16 +223,14 @@ def build_bot_controller_from_definition(
     bot_id: str,
     *,
     enable_bot_delay: bool,
+    seed: int | None = None,
+    delay_seconds: float = 1.2,
     storage_path: Path | None = None,
 ) -> Controller:
     definition = get_bot_definition(bot_id, storage_path=storage_path)
     if definition is None:
         raise ValueError(f"Unknown bot definition id: {bot_id}")
     parameters = merge_with_family_defaults(definition.base_controller_type, dict(definition.parameters))
-    delay_seconds_value = parameters.get("delay_seconds", 1.2)
-    delay_seconds = float(delay_seconds_value) if str(delay_seconds_value).strip() != "" else 1.2
-    seed_value = parameters.get("seed")
-    seed = None if seed_value in ("", None) else int(seed_value)
     if definition.base_controller_type == ControllerType.RANDOM_BOT:
         return RandomBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
     if definition.base_controller_type == ControllerType.HEURISTIC_BOT:
