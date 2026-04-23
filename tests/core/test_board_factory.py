@@ -129,3 +129,13 @@ def test_board_port_assignment_is_deterministic() -> None:
     board_b = build_classic_19_tile_board()
     assert board_a.ports == board_b.ports
     assert board_a.node_to_ports == board_b.node_to_ports
+
+
+def test_seeded_board_generation_is_deterministic() -> None:
+    board_a = build_classic_19_tile_board(seed=12345)
+    board_b = build_classic_19_tile_board(seed=12345)
+    board_c = build_classic_19_tile_board(seed=12346)
+
+    assert board_a.tiles == board_b.tiles
+    assert board_a.ports == board_b.ports
+    assert board_a.tiles != board_c.tiles

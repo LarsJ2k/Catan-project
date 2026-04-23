@@ -1,38 +1,20 @@
 from __future__ import annotations
 
 import math
+from typing import TypeVar
 
 from .models.board import Board, Edge, Port, Tile
 from .models.enums import ResourceType, TerrainType
+from .rng import next_u32
+
+T = TypeVar("T")
 
 
-def build_classic_19_tile_board() -> Board:
+def build_classic_19_tile_board(seed: int | None = None) -> Board:
     """Build a deterministic classic 19-hex Catan board graph (3-4-5-4-3)."""
     axial_coords = _radius_two_axial_coords()
 
-    # Fixed deterministic MVP layout (can randomize later without changing graph generation).
-    terrain_sequence = [
-        TerrainType.FOREST,
-        TerrainType.HILLS,
-        TerrainType.PASTURE,
-        TerrainType.FIELDS,
-        TerrainType.MOUNTAINS,
-        TerrainType.FOREST,
-        TerrainType.HILLS,
-        TerrainType.PASTURE,
-        TerrainType.FIELDS,
-        TerrainType.MOUNTAINS,
-        TerrainType.FOREST,
-        TerrainType.HILLS,
-        TerrainType.PASTURE,
-        TerrainType.FIELDS,
-        TerrainType.MOUNTAINS,
-        TerrainType.FOREST,
-        TerrainType.HILLS,
-        TerrainType.PASTURE,
-        TerrainType.DESERT,
-    ]
-    number_sequence = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11, None]
+    terrain_sequence, number_sequence = _resolve_tile_layout(seed)
 
     node_key_to_id: dict[tuple[int, int], int] = {}
     node_positions: dict[int, tuple[float, float]] = {}
@@ -84,7 +66,7 @@ def build_classic_19_tile_board() -> Board:
             edge_to_adjacent_tiles.setdefault(edge_id, set()).add(tile_id)
 
     edge_to_adjacent_nodes = {edge.id: (edge.node_a, edge.node_b) for edge in edges}
-    ports, node_to_ports = _build_ports(edge_to_adjacent_tiles, edge_to_adjacent_nodes, node_positions)
+    ports, node_to_ports = _build_ports(edge_to_adjacent_tiles, edge_to_adjacent_nodes, node_positions, seed=seed)
 
     return Board(
         nodes=tuple(sorted(node_key_to_id.values())),
@@ -99,6 +81,56 @@ def build_classic_19_tile_board() -> Board:
         ports=ports,
         node_to_ports=node_to_ports,
     )
+
+
+def _resolve_tile_layout(seed: int | None) -> tuple[list[TerrainType], list[int | None]]:
+    # Fixed deterministic MVP layout.
+    deterministic_terrain = [
+        TerrainType.FOREST,
+        TerrainType.HILLS,
+        TerrainType.PASTURE,
+        TerrainType.FIELDS,
+        TerrainType.MOUNTAINS,
+        TerrainType.FOREST,
+        TerrainType.HILLS,
+        TerrainType.PASTURE,
+        TerrainType.FIELDS,
+        TerrainType.MOUNTAINS,
+        TerrainType.FOREST,
+        TerrainType.HILLS,
+        TerrainType.PASTURE,
+        TerrainType.FIELDS,
+        TerrainType.MOUNTAINS,
+        TerrainType.FOREST,
+        TerrainType.HILLS,
+        TerrainType.PASTURE,
+        TerrainType.DESERT,
+    ]
+    deterministic_numbers = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11, None]
+    if seed is None:
+        return deterministic_terrain, deterministic_numbers
+
+    terrain_pool = [t for t in deterministic_terrain if t != TerrainType.DESERT]
+    number_pool = [token for token in deterministic_numbers if token is not None]
+    terrain_pool = _shuffle_with_seed(terrain_pool, seed)
+    number_pool = _shuffle_with_seed(number_pool, seed ^ 0x9E3779B9)
+
+    terrain_sequence: list[TerrainType] = []
+    number_sequence: list[int | None] = []
+    terrain_index = 0
+    number_index = 0
+    desert_index = _rand_below(seed ^ 0xA5A5A5A5, 19)
+
+    for tile_idx in range(19):
+        if tile_idx == desert_index:
+            terrain_sequence.append(TerrainType.DESERT)
+            number_sequence.append(None)
+        else:
+            terrain_sequence.append(terrain_pool[terrain_index])
+            number_sequence.append(number_pool[number_index])
+            terrain_index += 1
+            number_index += 1
+    return terrain_sequence, number_sequence
 
 
 def _radius_two_axial_coords() -> list[tuple[int, int]]:
@@ -132,6 +164,8 @@ def _build_ports(
     edge_to_adjacent_tiles: dict[int, set[int]],
     edge_to_adjacent_nodes: dict[int, tuple[int, int]],
     node_positions: dict[int, tuple[float, float]],
+    *,
+    seed: int | None,
 ) -> tuple[tuple[Port, ...], dict[int, tuple[int, ...]]]:
     coastal_edges = [edge_id for edge_id, tiles in edge_to_adjacent_tiles.items() if len(tiles) == 1]
     sorted_coastal = sorted(
@@ -159,6 +193,8 @@ def _build_ports(
         ResourceType.ORE,
         ResourceType.WOOL,
     ]
+    if seed is not None:
+        port_resources = _shuffle_with_seed(port_resources, seed ^ 0xB4B82E39)
     ports: list[Port] = []
     node_to_port_ids: dict[int, list[int]] = {}
     for port_id, (edge_id, trade_resource) in enumerate(zip(selected_edges, port_resources, strict=True)):
@@ -175,3 +211,18 @@ def _edge_midpoint_angle(edge_nodes: tuple[int, int], node_positions: dict[int, 
     mx = (ax + bx) / 2
     my = (ay + by) / 2
     return math.atan2(my, mx)
+
+
+def _shuffle_with_seed(values: list[T], seed: int) -> list[T]:
+    shuffled = list(values)
+    rng_state = seed
+    for idx in range(len(shuffled) - 1, 0, -1):
+        rng_value, rng_state = next_u32(rng_state)
+        swap_idx = rng_value % (idx + 1)
+        shuffled[idx], shuffled[swap_idx] = shuffled[swap_idx], shuffled[idx]
+    return shuffled
+
+
+def _rand_below(seed: int, modulo: int) -> int:
+    value, _ = next_u32(seed)
+    return value % modulo
