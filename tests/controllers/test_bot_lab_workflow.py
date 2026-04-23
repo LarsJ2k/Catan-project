@@ -52,8 +52,9 @@ def test_setup_and_tournament_see_saved_custom_bots(tmp_path, monkeypatch) -> No
     assert any(bot.display_name == "Heuristic Seeded" for bot in list_bot_definitions(storage_path=tmp_path / "custom_bots.json"))
     options = available_controller_types()
     assert ControllerType.HUMAN.value in options
-    assert any(option not in {ControllerType.HUMAN.value, "random_bot", "heuristic_bot"} for option in options)
+    builtin_ids = {ControllerType.HUMAN.value, "random_bot", "heuristic_bot", "heuristic_v1_baseline"}
+    assert any(option not in builtin_ids for option in options)
 
-    custom_id = next(option for option in options if option not in {ControllerType.HUMAN.value, "random_bot", "heuristic_bot"})
+    custom_id = next(option for option in options if option not in builtin_ids)
     tournament_state = TournamentSetupState(selected_bots=()).toggle_bot(custom_id)
     assert custom_id in tournament_state.selected_bots
