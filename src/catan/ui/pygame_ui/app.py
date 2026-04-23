@@ -783,7 +783,9 @@ class PygameApp:
         spectator_mode = self._is_spectator_mode(state, controllers)
         spectator_speed = 1.0
         base_bot_delay = self._current_bot_delay_seconds(controllers)
-        spectator_decision_ui = {"fallback_message": "Waiting for bot decision..."}
+        spectator_decision_history: dict[int, list[dict[str, object]]] = {
+            pid: [] for pid in sorted(state.players.keys())
+        }
         show_game_over_overlay = True
         self.return_to_main_menu = False
 
@@ -882,7 +884,10 @@ class PygameApp:
                 event_log_offset=event_log_offset,
                 hand_view_player=hand_view_player,
                 spectator_mode=spectator_mode,
-                spectator_data={**spectator_decision_ui, "speed": spectator_speed},
+                spectator_data={
+                    "player_decisions": spectator_decision_history,
+                    "speed": spectator_speed,
+                },
                 show_game_over_overlay=show_game_over_overlay,
             )
             settings_ui = self._draw_settings_ui(
@@ -1100,11 +1105,14 @@ class PygameApp:
                 before = state
                 state = self.runner.tick(state, controllers[active_player], active_player)
                 if spectator_mode and not isinstance(controllers[active_player], HumanController):
-                    spectator_decision_ui = self._spectator_decision_ui(controllers[active_player], before)
+                    decision_ui = self._spectator_decision_ui(controllers[active_player], before)
+                    player_history = spectator_decision_history.setdefault(active_player, [])
+                    player_history.insert(0, decision_ui)
+                    spectator_decision_history[active_player] = player_history[:2]
                 if state != before:
                     action_counter += 1
                     if spectator_mode and not isinstance(controllers[active_player], HumanController):
-                        last_applied_action = spectator_decision_ui.get("chosen_line") or selected_action_text or "action"
+                        last_applied_action = decision_ui.get("chosen_line") or selected_action_text or "action"
                     else:
                         last_applied_action = selected_action_text or "action"
                     for line in self._describe_transition(before, state, last_applied_action):
