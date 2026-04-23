@@ -209,7 +209,7 @@ class PygameApp:
                     round_robin_rect = self.pg.Rect(290, height - 245, 180, 40)
                     seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
                     export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
-                    export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
+                    export_excel_rect = self.pg.Rect(430, height - 195, 170, 38)
                     seed_minus_rect = self.pg.Rect(60, height - 145, 42, 36)
                     seed_plus_rect = self.pg.Rect(236, height - 145, 42, 36)
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
@@ -239,11 +239,11 @@ class PygameApp:
 
                                 _render_tournament_progress(0, total_matches)
                                 result = HeadlessTournamentRunner().run(config, progress_callback=_render_tournament_progress)
-                                json_path, csv_path = export_tournament_result(result)
+                                json_path, excel_path = export_tournament_result(result)
                                 tournament_summary_lines = [
                                     f"Matches: {len(result.matches)}",
                                     f"JSON: {json_path}" if json_path is not None else "JSON: disabled",
-                                    f"CSV: {csv_path}" if csv_path is not None else "CSV: disabled",
+                                    f"Excel: {excel_path}" if excel_path is not None else "Excel: disabled",
                                 ]
                                 for bot, agg in sorted(result.aggregates.items(), key=lambda item: item[1].win_rate, reverse=True):
                                     tournament_summary_lines.append(
@@ -263,7 +263,7 @@ class PygameApp:
                         if export_json_rect.collidepoint(event.pos):
                             tournament_state = tournament_state.with_export_json(not tournament_state.export_json)
                             continue
-                        if export_csv_rect.collidepoint(event.pos):
+                        if export_excel_rect.collidepoint(event.pos):
                             tournament_state = tournament_state.with_export_csv(not tournament_state.export_csv)
                             continue
                         if seed_minus_rect.collidepoint(event.pos):
@@ -656,10 +656,10 @@ class PygameApp:
                     screen.blit(small_font.render("Round Robin", True, (255, 255, 255)), (round_robin_rect.x + 32, round_robin_rect.y + 10))
                     seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
                     export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
-                    export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
+                    export_excel_rect = self.pg.Rect(430, height - 195, 170, 38)
                     self._draw_toggle_button(screen, small_font, seat_rotation_rect, "Seat Rotation", tournament_state.seat_rotation_enabled)
                     self._draw_toggle_button(screen, small_font, export_json_rect, "Export JSON", tournament_state.export_json)
-                    self._draw_toggle_button(screen, small_font, export_csv_rect, "Export CSV", tournament_state.export_csv)
+                    self._draw_toggle_button(screen, small_font, export_excel_rect, "Export Excel", tournament_state.export_csv)
                     seed_minus_rect = self.pg.Rect(60, height - 145, 42, 36)
                     seed_plus_rect = self.pg.Rect(236, height - 145, 42, 36)
                     self.pg.draw.rect(screen, (70, 80, 100), seed_minus_rect, border_radius=6)

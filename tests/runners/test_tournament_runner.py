@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-import csv
+from xml.etree import ElementTree
+from zipfile import ZipFile
 
 from catan.runners.game_setup import ControllerType, TournamentSetupState
 from catan.runners.tournament import (
@@ -278,7 +279,7 @@ def test_aggregation_correctness() -> None:
     assert aggregates[ControllerType.RANDOM_BOT.value].average_dev_cards_bought == 3.5
 
 
-def test_export_json_and_csv(tmp_path: Path) -> None:
+def test_export_json_and_excel(tmp_path: Path) -> None:
     config = TournamentConfig(
         selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
         fixed_lineup=(
@@ -293,22 +294,42 @@ def test_export_json_and_csv(tmp_path: Path) -> None:
     )
     result = HeadlessTournamentRunner().run(config)
 
-    json_path, csv_path = export_tournament_result(result)
+    json_path, excel_path = export_tournament_result(result)
 
     assert json_path is not None and json_path.exists()
-    assert csv_path is not None and csv_path.exists()
-    summary_csv = tmp_path / "test_fixed_lineup_batch_1_1_tournament_summary.csv"
-    assert summary_csv.exists()
-    with csv_path.open("r", encoding="utf-8", newline="") as match_file:
-        reader = csv.DictReader(match_file)
-        rows = list(reader)
-    with summary_csv.open("r", encoding="utf-8", newline="") as summary_file:
-        summary_rows = list(csv.DictReader(summary_file))
-    assert len(rows) == len(result.matches)
-    assert len(summary_rows) == len(result.aggregates)
-    assert "match_id" in rows[0]
-    assert "seat1_vp_total" in rows[0]
+    assert excel_path is not None and excel_path.exists()
+    summary_excel = tmp_path / "test_fixed_lineup_batch_1_1_tournament_summary.xlsx"
+    assert summary_excel.exists()
+
+    match_rows = _read_xlsx_rows(excel_path)
+    summary_rows = _read_xlsx_rows(summary_excel)
+
+    assert len(match_rows) - 1 == len(result.matches)
+    assert len(summary_rows) - 1 == len(result.aggregates)
+    assert "match_id" in match_rows[0]
+    assert "seat1_vp_total" in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
+
+
+def _read_xlsx_rows(path: Path) -> list[list[str]]:
+    with ZipFile(path, "r") as workbook_zip:
+        xml_bytes = workbook_zip.read("xl/worksheets/sheet1.xml")
+    root = ElementTree.fromstring(xml_bytes)
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rows: list[list[str]] = []
+    for row in root.findall(".//m:row", ns):
+        values: list[str] = []
+        for cell in row.findall("m:c", ns):
+            value_node = cell.find("m:v", ns)
+            inline_node = cell.find("m:is/m:t", ns)
+            if inline_node is not None and inline_node.text is not None:
+                values.append(inline_node.text)
+            elif value_node is not None and value_node.text is not None:
+                values.append(value_node.text)
+            else:
+                values.append("")
+        rows.append(values)
+    return rows
 
 
 def test_tournament_runner_disables_bot_delay(monkeypatch) -> None:
