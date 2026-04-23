@@ -60,6 +60,22 @@ class HeuristicScoringParams:
     road_no_settlement_progress_bonus: float = 0.0
     dev_when_city_ready_penalty: float = 0.0
     dev_when_city_near_penalty: float = 0.0
+    candidate_count: int = 8
+    action_score_weight: float = 0.25
+    state_score_weight: float = 0.75
+    vp_weight: float = 100.0
+    production_weight: float = 8.0
+    resource_balance_weight: float = 10.0
+    expansion_potential_weight: float = 6.0
+    city_potential_weight: float = 5.0
+    dev_potential_weight: float = 4.0
+    road_potential_weight: float = 2.5
+    port_value_weight: float = 3.0
+    hand_resource_weight: float = 1.0
+    robber_block_penalty: float = 12.0
+    large_hand_penalty: float = 2.0
+    road_overbuild_penalty: float = 4.0
+    no_expansion_penalty: float = 20.0
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, float | int | str | bool]) -> HeuristicScoringParams:
@@ -162,6 +178,8 @@ def default_family_parameters(controller_type: ControllerType) -> dict[str, floa
             dev_when_city_near_penalty=12.0,
         )
         return {**params.as_dict()}
+    if controller_type == ControllerType.HEURISTIC_V2_POSITIONAL:
+        return {**HeuristicScoringParams().as_dict()}
     return {}
 
 
