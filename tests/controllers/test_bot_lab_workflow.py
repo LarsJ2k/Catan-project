@@ -58,3 +58,28 @@ def test_setup_and_tournament_see_saved_custom_bots(tmp_path, monkeypatch) -> No
     custom_id = next(option for option in options if option not in builtin_ids)
     tournament_state = TournamentSetupState(selected_bots=()).toggle_bot(custom_id)
     assert custom_id in tournament_state.selected_bots
+
+
+def test_heuristic_params_are_visible_and_copy_editable(tmp_path) -> None:
+    base = get_bot_definition("heuristic_bot")
+    assert base is not None
+    assert "brick_value" in base.parameters
+    assert "road_to_target_weight" in base.parameters
+
+    edited = dict(base.parameters)
+    edited["road_to_target_weight"] = 0.01
+    edited["settlement_base_score"] = 350.0
+    created = create_custom_bot_definition(
+        name="Heuristic Aggressive Settlements",
+        base_bot_id=base.bot_id,
+        description="edited heuristic weights",
+        parameters=edited,
+        storage_path=tmp_path / "custom_bots.json",
+    )
+
+    assert created.parameters["road_to_target_weight"] == 0.01
+    assert created.parameters["settlement_base_score"] == 350.0
+    loaded = get_bot_definition(created.bot_id, storage_path=tmp_path / "custom_bots.json")
+    assert loaded is not None
+    assert loaded.parameters["road_to_target_weight"] == 0.01
+    assert loaded.parameters["settlement_base_score"] == 350.0

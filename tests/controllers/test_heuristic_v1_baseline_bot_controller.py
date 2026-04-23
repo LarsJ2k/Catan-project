@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
+from catan.controllers.heuristic_params import HeuristicScoringParams
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
 from catan.core.models.action import (
@@ -173,3 +174,35 @@ def test_v1_prefers_dev_purchase_when_no_strong_build_exists() -> None:
     )
 
     assert isinstance(choice, BuyDevelopmentCard)
+
+
+def test_v1_different_weight_profiles_can_pick_different_actions() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=103))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    legal = [BuildRoad(player_id=1, edge_id=0), EndTurn(player_id=1)]
+
+    conservative = HeuristicV1BaselineBotController(
+        seed=2,
+        enable_delay=False,
+        heuristic_params=HeuristicScoringParams(
+            road_base_score=-20.0,
+            end_turn_base_score=10.0,
+            dead_road_penalty=30.0,
+            dead_road_no_targets_penalty=30.0,
+        ),
+    )
+    road_focus = HeuristicV1BaselineBotController(
+        seed=2,
+        enable_delay=False,
+        heuristic_params=HeuristicScoringParams(
+            road_base_score=40.0,
+            end_turn_base_score=0.0,
+            dead_road_penalty=0.0,
+            dead_road_no_targets_penalty=0.0,
+        ),
+    )
+
+    conservative_choice = conservative.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    road_focus_choice = road_focus.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    assert isinstance(conservative_choice, EndTurn)
+    assert isinstance(road_focus_choice, BuildRoad)

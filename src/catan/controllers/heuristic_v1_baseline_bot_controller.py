@@ -5,6 +5,7 @@ import random
 import time
 from typing import Any, Sequence
 
+from catan.controllers.heuristic_params import HeuristicScoringParams
 from catan.core.models.action import (
     Action,
     BankTrade,
@@ -35,13 +36,6 @@ from catan.core.observer import DebugObservation, Observation
 
 DEFAULT_BOT_ACTION_DELAY_SECONDS = 1.2
 _TOKEN_PIP_SCORES = {2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1}
-_RESOURCE_VALUE = {
-    ResourceType.BRICK: 1.0,
-    ResourceType.LUMBER: 1.0,
-    ResourceType.WOOL: 0.9,
-    ResourceType.GRAIN: 1.2,
-    ResourceType.ORE: 1.3,
-}
 _TERRAIN_TO_RESOURCE = {
     TerrainType.HILLS: ResourceType.BRICK,
     TerrainType.FOREST: ResourceType.LUMBER,
@@ -68,10 +62,41 @@ class HeuristicV1BaselineBotController:
         seed: int | None = None,
         delay_seconds: float = DEFAULT_BOT_ACTION_DELAY_SECONDS,
         enable_delay: bool = True,
+        heuristic_params: HeuristicScoringParams | None = None,
     ) -> None:
         self._rng = random.Random(seed)
         self._delay_seconds = delay_seconds
         self._enable_delay = enable_delay
+        self._params = heuristic_params or HeuristicScoringParams(
+            grain_value=1.2,
+            ore_value=1.3,
+            immediate_win_score=50_000.0,
+            roll_score=20_000.0,
+            settlement_base_score=280.0,
+            city_base_score=260.0,
+            road_base_score=18.0,
+            dev_buy_base_score=110.0,
+            bank_trade_base_score=26.0,
+            end_turn_base_score=5.0,
+            diversity_weight=3.0,
+            missing_resource_weight=2.5,
+            expansion_weight=1.6,
+            wood_brick_bonus=4.5,
+            ore_wheat_bonus=4.5,
+            pair_synergy_weight=4.0,
+            road_to_target_weight=0.13,
+            dead_road_penalty=16.0,
+            dead_road_no_targets_penalty=24.0,
+            save_for_settlement_penalty=20.0,
+            save_for_settlement_mid_penalty=6.0,
+            port_reach_weight=0.16,
+            robber_leader_weight=1.2,
+            trade_scarcity_penalty=0.6,
+            dev_buy_weight=2.0,
+            knight_play_weight=8.0,
+            bank_trade_direct_build_bonus=34.0,
+        )
+        self._resource_values = self._params.resource_values()
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
         candidates = [action for action in legal_actions if not isinstance(action, ProposePlayerTrade)]
@@ -124,21 +149,21 @@ class HeuristicV1BaselineBotController:
 
     def _score_action(self, action: Action, state: GameState | None) -> float:
         if self._is_immediate_win(action, state):
-            return 50_000
+            return self._params.immediate_win_score
         if isinstance(action, RollDice):
-            return 20_000
+            return self._params.roll_score
         if isinstance(action, PlaceSetupSettlement):
             return 320 + self._score_settlement_node(action.node_id, state, in_setup=True)
         if isinstance(action, BuildSettlement):
-            return 280 + self._score_settlement_node(action.node_id, state, in_setup=False)
+            return self._params.settlement_base_score + self._score_settlement_node(action.node_id, state, in_setup=False)
         if isinstance(action, BuildCity):
-            return 260 + self._score_city_node(action.node_id, state)
+            return self._params.city_base_score + self._score_city_node(action.node_id, state)
         if isinstance(action, PlayKnightCard):
             return 140 + self._score_knight_play(state)
         if isinstance(action, BuyDevelopmentCard):
-            return 110 + self._evaluate_dev_purchase(state)
+            return self._params.dev_buy_base_score + self._evaluate_dev_purchase(state)
         if isinstance(action, BuildRoad):
-            return 18 + self._score_road(action, state)
+            return self._params.road_base_score + self._score_road(action, state)
         if isinstance(action, BankTrade):
             return self._score_bank_trade(action, state)
         if isinstance(action, MoveRobber):
@@ -162,7 +187,7 @@ class HeuristicV1BaselineBotController:
         if isinstance(action, DiscardResources):
             return 25
         if isinstance(action, EndTurn):
-            return 5
+            return self._params.end_turn_base_score
         return 0
 
     def _is_immediate_win(self, action: Action, state: GameState | None) -> bool:
@@ -190,12 +215,12 @@ class HeuristicV1BaselineBotController:
             pip_total += pip
             resource = _TERRAIN_TO_RESOURCE.get(tile.terrain)
             if resource is not None:
-                weighted_total += pip * _RESOURCE_VALUE[resource]
+                weighted_total += pip * self._resource_values[resource]
                 resources.add(resource)
 
-        diversity_bonus = 3.0 * len(resources)
-        wb_bonus = 4.5 if {ResourceType.BRICK, ResourceType.LUMBER}.issubset(resources) else 0.0
-        ow_bonus = 4.5 if {ResourceType.ORE, ResourceType.GRAIN}.issubset(resources) else 0.0
+        diversity_bonus = self._params.diversity_weight * len(resources)
+        wb_bonus = self._params.wood_brick_bonus if {ResourceType.BRICK, ResourceType.LUMBER}.issubset(resources) else 0.0
+        ow_bonus = self._params.ore_wheat_bonus if {ResourceType.ORE, ResourceType.GRAIN}.issubset(resources) else 0.0
 
         player_id = state.turn.current_player if state.turn is not None else None
         missing_bonus = 0.0
@@ -204,24 +229,24 @@ class HeuristicV1BaselineBotController:
             produced = self._player_production_resources(state, player_id)
             for resource in resources:
                 if produced.get(resource, 0) == 0:
-                    missing_bonus += 2.5
+                    missing_bonus += self._params.missing_resource_weight
             if in_setup:
                 existing_setup_nodes = [
                     nid for nid, owner in state.placed.settlements.items() if owner == player_id
                 ]
                 if existing_setup_nodes:
-                    pair_bonus += self._score_setup_pair(existing_setup_nodes[0], node_id, state)
+                    pair_bonus += self._score_setup_pair(existing_setup_nodes[0], node_id, state) * self._params.pair_synergy_weight
 
-        port_bonus = self._score_port_value(node_id, state, resources)
+        port_bonus = self._score_port_value(node_id, state, resources) * self._params.port_weight
         expansion_bonus = self._score_future_expansion(node_id, state)
-        return pip_total + weighted_total + diversity_bonus + wb_bonus + ow_bonus + missing_bonus + pair_bonus + port_bonus + expansion_bonus
+        return (pip_total * self._params.pip_weight) + weighted_total + diversity_bonus + wb_bonus + ow_bonus + missing_bonus + pair_bonus + port_bonus + expansion_bonus
 
     def _score_setup_pair(self, existing_node: NodeId, candidate_node: NodeId, state: GameState) -> float:
         existing_resources = self._node_resources(existing_node, state)
         candidate_resources = self._node_resources(candidate_node, state)
         combined = existing_resources | candidate_resources
         overlap_penalty = max(0, len(existing_resources) + len(candidate_resources) - len(combined)) * 1.0
-        return (len(combined) * 4.0) - overlap_penalty
+        return (len(combined) * 1.0) - overlap_penalty
 
     def _node_resources(self, node_id: NodeId, state: GameState) -> set[ResourceType]:
         resources: set[ResourceType] = set()
@@ -251,7 +276,7 @@ class HeuristicV1BaselineBotController:
         endpoint_opening = 0.0
         for node_id in (node_a, node_b):
             if self._is_open_settlement_node(state, node_id):
-                endpoint_opening = max(endpoint_opening, self._score_settlement_node(node_id, state, in_setup=False) * 0.16)
+                endpoint_opening = max(endpoint_opening, self._score_settlement_node(node_id, state, in_setup=False) * self._params.port_reach_weight)
 
         dead_road_penalty = self._dead_road_penalty(before_distances, after_distances)
         save_penalty = self._save_for_settlement_penalty(player.resources)
@@ -309,14 +334,19 @@ class HeuristicV1BaselineBotController:
                 continue
             quality = self._score_settlement_node(node_id, state, in_setup=False)
             improvement = dist_before - dist_after
-            best = max(best, (quality * 0.13) - (dist_after * 3.0) + (improvement * 14.0))
+            best = max(
+                best,
+                (quality * self._params.road_to_target_weight)
+                - (dist_after * self._params.road_distance_penalty)
+                + (improvement * self._params.road_improvement_weight),
+            )
         return best
 
     def _dead_road_penalty(self, before_distances: dict[NodeId, int], after_distances: dict[NodeId, int]) -> float:
         if not after_distances:
-            return 24.0
+            return self._params.dead_road_no_targets_penalty
         improved = any(dist_after < before_distances.get(node_id, 99) for node_id, dist_after in after_distances.items())
-        return 0.0 if improved else 16.0
+        return 0.0 if improved else self._params.dead_road_penalty
 
     def _save_for_settlement_penalty(self, resources: dict[ResourceType, int]) -> float:
         missing_before = self._missing_resources(resources, _SETTLEMENT_COST)
@@ -325,9 +355,9 @@ class HeuristicV1BaselineBotController:
         post_road[ResourceType.LUMBER] = max(0, post_road.get(ResourceType.LUMBER, 0) - 1)
         missing_after = self._missing_resources(post_road, _SETTLEMENT_COST)
         if missing_before <= 1:
-            return 20.0 + max(0, missing_after - missing_before) * 8.0
+            return self._params.save_for_settlement_penalty + max(0, missing_after - missing_before) * self._params.save_for_settlement_delta_penalty
         if missing_before == 2:
-            return 6.0
+            return self._params.save_for_settlement_mid_penalty
         return 0.0
 
     def _longest_road_bonus(self, state: GameState, player_id: int, node_a: NodeId, node_b: NodeId) -> float:
@@ -340,7 +370,7 @@ class HeuristicV1BaselineBotController:
         for edge_id in state.board.node_to_adjacent_edges.get(node_b, ()):
             if state.placed.roads.get(edge_id) == player_id:
                 connected += 1
-        return min(6.0, connected * 1.5)
+        return min(6.0, connected * self._params.longest_road_weight)
 
     def _score_bank_trade(self, action: BankTrade, state: GameState | None) -> float:
         favorable_rate = max(0, 4 - action.trade_rate) * 4
@@ -355,15 +385,15 @@ class HeuristicV1BaselineBotController:
 
         enable_bonus = 0.0
         if self._can_afford(resources_after, _SETTLEMENT_COST):
-            enable_bonus = 34.0
+            enable_bonus = self._params.bank_trade_direct_build_bonus
         elif self._can_afford(resources_after, _CITY_COST):
-            enable_bonus = 32.0
+            enable_bonus = self._params.bank_trade_direct_build_bonus - 2.0
         elif self._can_afford(resources_after, _DEV_COST):
             enable_bonus = 18.0
 
         if enable_bonus == 0.0:
             return -6.0 + favorable_rate + scarcity
-        return 26.0 + favorable_rate + scarcity + enable_bonus
+        return self._params.bank_trade_base_score + favorable_rate + scarcity + enable_bonus
 
     def _score_move_robber(self, action: MoveRobber, state: GameState | None) -> float:
         if state is None:
@@ -377,9 +407,9 @@ class HeuristicV1BaselineBotController:
             if owner is None:
                 continue
             if owner == action.player_id:
-                self_harm += 18.0
+                self_harm += self._params.robber_self_harm_penalty
                 continue
-            target_weight += 8.0 + state.players[owner].victory_points * 1.2
+            target_weight += self._params.robber_steal_value_weight + state.players[owner].victory_points * self._params.robber_leader_weight
         return 30 + token_score + target_weight - self_harm
 
     def _score_knight_play(self, state: GameState | None) -> float:
@@ -387,15 +417,15 @@ class HeuristicV1BaselineBotController:
             return 0.0
         player_id = state.turn.current_player
         if state.largest_army_holder in (None, player_id):
-            return 8.0
-        return 14.0
+            return self._params.knight_play_weight
+        return self._params.knight_play_weight + 6.0
 
     def _evaluate_dev_purchase(self, state: GameState | None) -> float:
         if state is None or state.turn is None:
             return 0.0
         produced = self._player_production_resources(state, state.turn.current_player)
         ore_wheat = produced.get(ResourceType.ORE, 0) + produced.get(ResourceType.GRAIN, 0)
-        return min(18.0, ore_wheat * 2.0)
+        return min(18.0, ore_wheat * self._params.dev_buy_weight)
 
     def _score_trade_partner(self, action: ChooseTradePartner, state: GameState | None) -> float:
         if state is None:
@@ -493,20 +523,20 @@ class HeuristicV1BaselineBotController:
         give_value = 0.0
         receive_value = 0.0
         for resource, amount in offered.items():
-            receive_value += _RESOURCE_VALUE[resource] * amount
+            receive_value += self._resource_values[resource] * amount
         for resource, amount in requested.items():
             if responder.resources.get(resource, 0) < amount:
                 return False
-            scarcity_penalty = 0.6 if responder.resources.get(resource, 0) <= amount else 0.0
-            give_value += (_RESOURCE_VALUE[resource] + scarcity_penalty) * amount
-        return receive_value >= give_value
+            scarcity_penalty = self._params.trade_scarcity_penalty if responder.resources.get(resource, 0) <= amount else 0.0
+            give_value += (self._resource_values[resource] + scarcity_penalty) * amount
+        return (receive_value - give_value) >= self._params.trade_interest_threshold
 
     def _choose_discard_action(self, state: GameState, player_id: int) -> DiscardResources:
         required = state.discard_requirements.get(player_id, 0)
         hand = dict(state.players[player_id].resources)
         prioritized = sorted(
             (resource for resource in ResourceType if hand.get(resource, 0) > 0),
-            key=lambda resource: (_RESOURCE_VALUE[resource], -hand[resource]),
+            key=lambda resource: (self._resource_values[resource], -hand[resource]),
         )
         discards: dict[ResourceType, int] = {resource: 0 for resource in ResourceType}
         remaining = required
