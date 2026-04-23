@@ -38,6 +38,7 @@ class DrawnUi:
     event_log_scroll_down_rect: object | None
     speed_button_rects: dict[float, object]
     game_over_menu_button_rect: object | None
+    game_over_view_board_button_rect: object | None
 
 
 def probability_dot_count(number_token: int | None) -> int:
@@ -126,6 +127,7 @@ class PygameRenderer:
         hand_view_player: int | None = None,
         spectator_mode: bool = False,
         spectator_data: dict[str, object] | None = None,
+        show_game_over_overlay: bool = True,
     ) -> DrawnUi:
         legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end = extract_legal_targets(
             state, legal_actions, build_mode=build_mode
@@ -180,8 +182,9 @@ class PygameRenderer:
         if dev_card_ui:
             self._draw_dev_card_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, dev_card_ui)
         game_over_menu_button_rect = None
-        if state.phase == GamePhase.GAME_OVER and state.winner is not None:
-            game_over_menu_button_rect = self._draw_game_over_overlay(screen, state.winner)
+        game_over_view_board_button_rect = None
+        if state.phase == GamePhase.GAME_OVER and state.winner is not None and show_game_over_overlay:
+            game_over_menu_button_rect, game_over_view_board_button_rect = self._draw_game_over_overlay(screen, state.winner)
         return DrawnUi(
             roll_button_rect=roll_rect,
             end_turn_button_rect=end_rect,
@@ -191,6 +194,7 @@ class PygameRenderer:
             event_log_scroll_down_rect=scroll_down_rect,
             speed_button_rects=speed_button_rects,
             game_over_menu_button_rect=game_over_menu_button_rect,
+            game_over_view_board_button_rect=game_over_view_board_button_rect,
         )
 
     def _draw_phase_banner(self, screen, state: GameState, *, width: int, panel_x: int, fullscreen: bool, bottom_bar_height: int) -> None:
@@ -754,14 +758,14 @@ class PygameRenderer:
         screen.blit(self.small_font.render("Player Trade", True, (190, 190, 190)), (right_x + 36, y + 89))
         screen.blit(self.small_font.render("Cancel", True, (250, 250, 250)), (right_x + 57, y + 125))
 
-    def _draw_game_over_overlay(self, screen, winner_player_id: int) -> object:
+    def _draw_game_over_overlay(self, screen, winner_player_id: int) -> tuple[object, object]:
         width, height = screen.get_size()
         overlay = self.pg.Surface((width, height), self.pg.SRCALPHA)
         overlay.fill((8, 8, 12, 145))
         screen.blit(overlay, (0, 0))
 
         panel_w = min(max(int(width * 0.46), 360), 700)
-        panel_h = min(max(int(height * 0.22), 150), 260)
+        panel_h = min(max(int(height * 0.3), 190), 300)
         panel_x = (width - panel_w) // 2
         panel_y = (height - panel_h) // 2
         self.pg.draw.rect(screen, (36, 36, 44), (panel_x, panel_y, panel_w, panel_h), border_radius=10)
@@ -776,12 +780,20 @@ class PygameRenderer:
         screen.blit(winner_text, (panel_x + (panel_w - winner_text.get_width()) // 2, panel_y + 82))
         button_w = min(280, panel_w - 60)
         button_h = 40
-        button_rect = self.pg.Rect(panel_x + (panel_w - button_w) // 2, panel_y + panel_h - button_h - 20, button_w, button_h)
-        self.pg.draw.rect(screen, (88, 114, 90), button_rect, border_radius=6)
-        self.pg.draw.rect(screen, (130, 160, 132), button_rect, width=1, border_radius=6)
-        button_text = button_font.render("Return to Main Menu", True, (245, 245, 245))
-        screen.blit(button_text, (button_rect.x + (button_w - button_text.get_width()) // 2, button_rect.y + 9))
-        return button_rect
+        gap = 10
+        total_buttons_h = button_h * 2 + gap
+        top_button_y = panel_y + panel_h - total_buttons_h - 20
+        menu_button_rect = self.pg.Rect(panel_x + (panel_w - button_w) // 2, top_button_y, button_w, button_h)
+        view_board_button_rect = self.pg.Rect(menu_button_rect.x, menu_button_rect.y + button_h + gap, button_w, button_h)
+        self.pg.draw.rect(screen, (88, 114, 90), menu_button_rect, border_radius=6)
+        self.pg.draw.rect(screen, (130, 160, 132), menu_button_rect, width=1, border_radius=6)
+        menu_button_text = button_font.render("Return to Main Menu", True, (245, 245, 245))
+        screen.blit(menu_button_text, (menu_button_rect.x + (button_w - menu_button_text.get_width()) // 2, menu_button_rect.y + 9))
+        self.pg.draw.rect(screen, (76, 92, 116), view_board_button_rect, border_radius=6)
+        self.pg.draw.rect(screen, (122, 142, 172), view_board_button_rect, width=1, border_radius=6)
+        view_button_text = button_font.render("View Board", True, (245, 245, 245))
+        screen.blit(view_button_text, (view_board_button_rect.x + (button_w - view_button_text.get_width()) // 2, view_board_button_rect.y + 9))
+        return menu_button_rect, view_board_button_rect
 
     def _draw_player_trade_overlay(self, screen, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         overlay_h = max(int(bottom_h * 0.92), 165)
