@@ -64,8 +64,7 @@ class PygameApp:
             quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 44, 240, 48)
             back_rect = self.pg.Rect(40, height - 70, 160, 42)
             start_rect = self.pg.Rect(width - 220, height - 70, 180, 42)
-            random_seed_rect = self.pg.Rect(60, 380, 170, 36)
-            fixed_seed_rect = self.pg.Rect(250, 380, 160, 36)
+            seed_slider_rect = self.pg.Rect(60, 380, 350, 36)
             seed_input_rect = self.pg.Rect(60, 430, 350, 42)
             slot_rects = [self.pg.Rect(60, 120 + idx * 55, 520, 40) for idx in range(4)]
 
@@ -100,11 +99,11 @@ class PygameApp:
                             if config is not None:
                                 self.pg.quit()
                                 return config
-                        if random_seed_rect.collidepoint(event.pos):
-                            flow_state = flow_state.with_random_seed()
-                            continue
-                        if fixed_seed_rect.collidepoint(event.pos):
-                            if flow_state.use_random_seed:
+                        if seed_slider_rect.collidepoint(event.pos):
+                            slider_mid_x = seed_slider_rect.centerx
+                            if event.pos[0] < slider_mid_x:
+                                flow_state = flow_state.with_random_seed()
+                            elif flow_state.use_random_seed:
                                 flow_state = flow_state.with_fixed_seed_text("")
                             continue
                         for idx, rect in enumerate(slot_rects):
@@ -134,14 +133,27 @@ class PygameApp:
                     self.pg.draw.rect(screen, (60, 60, 90), rect)
                     label = f"Player {slot.player_id}: {'Human' if slot.controller_type == ControllerType.HUMAN else 'Bot (placeholder)'}"
                     screen.blit(small_font.render(label, True, (255, 255, 255)), (rect.x + 10, rect.y + 8))
-                self.pg.draw.rect(screen, (80, 80, 120), random_seed_rect)
-                self.pg.draw.rect(screen, (80, 80, 120), fixed_seed_rect)
-                screen.blit(small_font.render("Random seed", True, (255, 255, 255)), (random_seed_rect.x + 12, random_seed_rect.y + 7))
-                screen.blit(small_font.render("Fixed seed", True, (255, 255, 255)), (fixed_seed_rect.x + 20, fixed_seed_rect.y + 7))
-                seed_label = "ACTIVE" if flow_state.use_random_seed else "INACTIVE"
-                fixed_label = "ACTIVE" if not flow_state.use_random_seed else "INACTIVE"
-                screen.blit(small_font.render(seed_label, True, (170, 230, 170)), (random_seed_rect.right + 12, random_seed_rect.y + 7))
-                screen.blit(small_font.render(fixed_label, True, (170, 230, 170)), (fixed_seed_rect.right + 12, fixed_seed_rect.y + 7))
+                self.pg.draw.rect(screen, (80, 80, 120), seed_slider_rect, border_radius=18)
+                slider_mid_x = seed_slider_rect.centerx
+                self.pg.draw.line(
+                    screen,
+                    (120, 120, 160),
+                    (slider_mid_x, seed_slider_rect.y + 5),
+                    (slider_mid_x, seed_slider_rect.bottom - 5),
+                    2,
+                )
+                knob_width = seed_slider_rect.width // 2
+                knob_x = seed_slider_rect.x if flow_state.use_random_seed else slider_mid_x
+                knob_rect = self.pg.Rect(knob_x, seed_slider_rect.y, knob_width, seed_slider_rect.height)
+                self.pg.draw.rect(screen, (110, 160, 110), knob_rect, border_radius=18)
+                screen.blit(
+                    small_font.render("Random seed", True, (255, 255, 255)),
+                    (seed_slider_rect.x + 16, seed_slider_rect.y + 7),
+                )
+                screen.blit(
+                    small_font.render("Fixed seed", True, (255, 255, 255)),
+                    (slider_mid_x + 16, seed_slider_rect.y + 7),
+                )
                 self.pg.draw.rect(screen, (40, 40, 60), seed_input_rect)
                 seed_text = flow_state.fixed_seed_text if flow_state.fixed_seed_text else "(enter number)"
                 screen.blit(small_font.render(f"Seed: {seed_text}", True, (240, 240, 240)), (seed_input_rect.x + 10, seed_input_rect.y + 10))
