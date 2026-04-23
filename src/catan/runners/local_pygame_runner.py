@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from catan.controllers.base import Controller
+from catan.controllers.human_controller import HumanController
 from catan.controllers.human_controller import NoActionAvailableYet
 from catan.core.engine import apply_action, get_legal_actions, get_observation
 from catan.core.models.state import GameState
@@ -11,7 +12,7 @@ class LocalPygameRunner:
 
     def tick(self, state: GameState, controller: Controller, player_id: int) -> GameState:
         legal_actions = get_legal_actions(state, player_id)
-        observation = get_observation(state, player_id)
+        observation = get_observation(state, player_id, debug=not isinstance(controller, HumanController))
         try:
             action = controller.choose_action(observation, legal_actions)
         except NoActionAvailableYet:

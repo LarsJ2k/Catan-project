@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Mapping
 
 from catan.controllers.base import Controller
-from catan.core.engine import apply_action, get_legal_actions, is_terminal
+from catan.controllers.human_controller import HumanController
+from catan.core.engine import apply_action, get_legal_actions, get_observation, is_terminal
 from catan.core.models.enums import GamePhase
 from catan.core.models.state import GameState
 
@@ -30,7 +30,9 @@ class DebugTextRunner:
                 return current
 
             print(self._pre_action_summary(step, current, actor, legal))
-            action = controllers[actor].choose_action(replace(current), legal)
+            controller = controllers[actor]
+            observation = get_observation(current, actor, debug=not isinstance(controller, HumanController))
+            action = controller.choose_action(observation, legal)
             current = apply_action(current, action)
             print(self._post_action_summary(current, action))
 
