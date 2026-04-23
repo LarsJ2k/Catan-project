@@ -132,6 +132,15 @@ class PygameRenderer:
             event_log_offset=event_log_offset,
         )
         self._draw_bottom_bar(screen, state, active_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui)
+        self._draw_dice_button_in_board_area(
+            screen,
+            state,
+            panel_x=panel_x,
+            height=height,
+            bottom_h=bottom_bar_height,
+            can_roll=can_roll,
+            action_button_rects=action_button_rects,
+        )
         if trade_ui:
             self._draw_trade_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, trade_ui)
         if discard_ui:
@@ -359,22 +368,21 @@ class PygameRenderer:
         card_h = 94
         gap = 10
         screen.blit(self.small_font.render("Dev cards", True, (236, 236, 236)), (start_x, start_y - 20))
-        for idx, card_type in enumerate(DevelopmentCardType):
+        visible_card_types = [card_type for card_type, count in player.dev_cards.items() if count > 0]
+        for idx, card_type in enumerate(visible_card_types):
             x = start_x + idx * (card_w + gap)
             rect = self.pg.Rect(x, start_y, card_w, card_h)
             count = player.dev_cards.get(card_type, 0)
-            filled = count > 0
-            face_color = (84, 92, 120) if filled else (52, 52, 58)
-            border_color = (138, 145, 176) if filled else (86, 86, 92)
+            face_color = (84, 92, 120)
+            border_color = (138, 145, 176)
             self.pg.draw.rect(screen, face_color, rect, border_radius=6)
             self.pg.draw.rect(screen, border_color, rect, width=2, border_radius=6)
             label = self._dev_card_name(card_type)
-            label_surface = self.small_font.render(label, True, (235, 235, 240) if filled else (138, 138, 146))
+            label_surface = self.small_font.render(label, True, (235, 235, 240))
             screen.blit(label_surface, (x + 8, start_y + 12))
-            if filled:
-                count_rect = self.pg.Rect(rect.right - 24, rect.y + 4, 20, 18)
-                self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
-                screen.blit(self.small_font.render(str(count), True, (24, 24, 24)), (count_rect.x + 6, count_rect.y + 2))
+            count_rect = self.pg.Rect(rect.right - 24, rect.y + 4, 20, 18)
+            self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
+            screen.blit(self.small_font.render(str(count), True, (24, 24, 24)), (count_rect.x + 6, count_rect.y + 2))
 
     def _draw_dice_button(self, screen, x: int, y: int, can_roll: bool, action_button_rects: dict[str, object], state: GameState) -> None:
         dice_rect = self.pg.Rect(x, y, 88, 72)
@@ -389,6 +397,22 @@ class PygameRenderer:
         self._draw_die_pips(screen, die_1, roll[0])
         self._draw_die_pips(screen, die_2, roll[1])
         action_button_rects["dice"] = dice_rect
+
+    def _draw_dice_button_in_board_area(
+        self,
+        screen,
+        state: GameState,
+        *,
+        panel_x: int,
+        height: int,
+        bottom_h: int,
+        can_roll: bool,
+        action_button_rects: dict[str, object],
+    ) -> None:
+        margin = 14
+        x = panel_x - 88 - margin
+        y = height - bottom_h - 72 - margin
+        self._draw_dice_button(screen, x, y, can_roll, action_button_rects, state)
 
     def _draw_sidebar_buttons(
         self,
@@ -421,7 +445,6 @@ class PygameRenderer:
         self.pg.draw.rect(screen, (86, 112, 150) if primary_enabled else (72, 72, 74), primary_rect, border_radius=6)
         screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (primary_rect.x + 10, primary_rect.y + 8))
         action_button_rects["primary"] = primary_rect
-        self._draw_dice_button(screen, panel_x + 10, height - 84, can_roll, action_button_rects, state)
 
     def _draw_die_pips(self, screen, die_rect, value: int) -> None:
         cx, cy = die_rect.centerx, die_rect.centery
