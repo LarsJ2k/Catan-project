@@ -43,6 +43,7 @@ from catan.runners.game_setup import (
 from catan.runners.local_pygame_runner import LocalPygameRunner
 from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat, export_tournament_result
 from catan.controllers.bot_catalog import create_custom_bot_definition, get_bot_definition, list_bot_definitions
+from catan.controllers.heuristic_params import merge_with_family_defaults
 
 from .input_mapper import HoverTarget, PygameInputMapper
 from .layout import build_circular_layout
@@ -77,6 +78,9 @@ class PygameApp:
         new_bot_name = ""
         new_bot_description = ""
         new_bot_parameters: dict[str, str] = {}
+        new_bot_param_keys: list[str] = []
+        selected_new_bot_param_idx = 0
+        editing_name_field = True
         bot_lab_error: str | None = None
 
         while True:
@@ -318,19 +322,20 @@ class PygameApp:
                                 new_bot_name = f"{base.display_name} Copy"
                                 new_bot_description = base.description
                                 new_bot_parameters = {key: str(value) for key, value in base.parameters.items()}
+                                new_bot_param_keys = list(new_bot_parameters.keys())
+                                selected_new_bot_param_idx = 0
+                                editing_name_field = True
                                 bot_lab_error = None
                             continue
                         if create_form_open and save_rect.collidepoint(event.pos):
                             try:
-                                parsed_params: dict[str, float | int | str | bool] = {}
+                                base_definition = get_bot_definition(selected_lab_bot_id or "")
+                                if base_definition is None:
+                                    raise ValueError("Selected base bot is missing.")
+                                raw_params: dict[str, float | int | str | bool] = {}
                                 for key, value in new_bot_parameters.items():
-                                    value_text = value.strip()
-                                    if key == "seed":
-                                        parsed_params[key] = "" if value_text == "" else int(value_text)
-                                    elif key == "delay_seconds":
-                                        parsed_params[key] = float(value_text or "1.2")
-                                    else:
-                                        parsed_params[key] = value
+                                    raw_params[key] = value.strip()
+                                parsed_params = merge_with_family_defaults(base_definition.base_controller_type, raw_params)
                                 create_custom_bot_definition(
                                     name=new_bot_name,
                                     base_bot_id=selected_lab_bot_id or "",
@@ -342,12 +347,25 @@ class PygameApp:
                             except ValueError as exc:
                                 bot_lab_error = str(exc)
                     if create_form_open and event.type == self.pg.KEYDOWN:
-                        if event.key == self.pg.K_BACKSPACE:
-                            new_bot_name = new_bot_name[:-1]
-                        elif event.key == self.pg.K_TAB:
+                        if event.key == self.pg.K_TAB:
+                            editing_name_field = not editing_name_field
                             continue
-                        elif event.unicode and event.unicode.isprintable():
+                        if not editing_name_field and event.key == self.pg.K_UP and new_bot_param_keys:
+                            selected_new_bot_param_idx = max(0, selected_new_bot_param_idx - 1)
+                            continue
+                        if not editing_name_field and event.key == self.pg.K_DOWN and new_bot_param_keys:
+                            selected_new_bot_param_idx = min(len(new_bot_param_keys) - 1, selected_new_bot_param_idx + 1)
+                            continue
+                        if editing_name_field and event.key == self.pg.K_BACKSPACE:
+                            new_bot_name = new_bot_name[:-1]
+                        elif editing_name_field and event.unicode and event.unicode.isprintable():
                             new_bot_name += event.unicode
+                        elif not editing_name_field and new_bot_param_keys:
+                            key = new_bot_param_keys[selected_new_bot_param_idx]
+                            if event.key == self.pg.K_BACKSPACE:
+                                new_bot_parameters[key] = new_bot_parameters[key][:-1]
+                            elif event.unicode and event.unicode.isprintable():
+                                new_bot_parameters[key] += event.unicode
 
             screen.fill((20, 20, 28))
             if flow_state.screen == AppScreen.MAIN_MENU:
@@ -465,11 +483,21 @@ class PygameApp:
                     self.pg.draw.rect(screen, (70, 90, 130), new_from_selected_rect, border_radius=8)
                     screen.blit(small_font.render("New Bot (based on selected bot)", True, (255, 255, 255)), (details_x + 12, height - 110))
                     if create_form_open:
-                        form_rect = self.pg.Rect(details_x, height - 280, width - details_x - 40, 140)
+                        form_rect = self.pg.Rect(details_x, height - 360, width - details_x - 40, 220)
                         self.pg.draw.rect(screen, (36, 48, 64), form_rect, border_radius=8)
-                        screen.blit(small_font.render(f"New name: {new_bot_name}", True, (240, 240, 240)), (details_x + 10, height - 260))
-                        screen.blit(small_font.render(f"Description: {new_bot_description}", True, (240, 240, 240)), (details_x + 10, height - 230))
-                        screen.blit(small_font.render("Name editable with keyboard. Existing bots remain read-only.", True, (190, 210, 230)), (details_x + 10, height - 200))
+                        name_color = (255, 255, 255) if editing_name_field else (190, 210, 230)
+                        screen.blit(small_font.render(f"New name: {new_bot_name}", True, name_color), (details_x + 10, height - 340))
+                        screen.blit(small_font.render(f"Description: {new_bot_description}", True, (240, 240, 240)), (details_x + 10, height - 310))
+                        instruction = "TAB switches edit focus; UP/DOWN pick parameter; type to edit."
+                        screen.blit(small_font.render(instruction, True, (190, 210, 230)), (details_x + 10, height - 280))
+                        param_y = height - 250
+                        for idx, key in enumerate(new_bot_param_keys[:5]):
+                            value = new_bot_parameters.get(key, "")
+                            selected = (not editing_name_field) and idx == selected_new_bot_param_idx
+                            color = (255, 255, 255) if selected else (200, 220, 235)
+                            prefix = ">" if selected else " "
+                            screen.blit(small_font.render(f"{prefix} {key}: {value}", True, color), (details_x + 10, param_y))
+                            param_y += 28
                         save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
                         self.pg.draw.rect(screen, (70, 120, 70), save_rect, border_radius=8)
                         screen.blit(small_font.render("Save New Bot", True, (255, 255, 255)), (width - 200, height - 110))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
+from catan.controllers.heuristic_params import HeuristicScoringParams
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions
 from catan.core.models.action import (
@@ -211,3 +212,28 @@ def test_heuristic_bot_builds_valid_discard_action_from_placeholder() -> None:
 
     assert isinstance(action, DiscardResources)
     assert sum(amount for _, amount in action.resources) == 3
+
+
+def test_heuristic_param_change_can_change_choice_deterministically() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=91))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    legal = [BuildSettlement(player_id=1, node_id=0), EndTurn(player_id=1)]
+
+    passive_bot = HeuristicBotController(
+        seed=1,
+        enable_delay=False,
+        heuristic_params=HeuristicScoringParams(settlement_base_score=-500.0, end_turn_base_score=10.0),
+    )
+    active_bot = HeuristicBotController(
+        seed=1,
+        enable_delay=False,
+        heuristic_params=HeuristicScoringParams(settlement_base_score=300.0, end_turn_base_score=0.0),
+    )
+
+    passive_choice_a = passive_bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    passive_choice_b = passive_bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    active_choice = active_bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+
+    assert isinstance(passive_choice_a, EndTurn)
+    assert passive_choice_a == passive_choice_b
+    assert isinstance(active_choice, BuildSettlement)
