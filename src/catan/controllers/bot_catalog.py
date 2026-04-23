@@ -171,25 +171,37 @@ def _load_custom_bot_definitions(*, storage_path: Path | None = None) -> tuple[B
     if not isinstance(payload, list):
         return ()
     loaded: list[BotDefinition] = []
+    seen_ids: set[str] = set()
+    sanitized = False
     for entry in payload:
         if not isinstance(entry, dict):
+            sanitized = True
             continue
         try:
+            bot_id = str(entry["bot_id"])
+            base_controller_type = ControllerType(str(entry["base_controller_type"]))
+            if bot_id in _BUILTIN_BY_ID or bot_id in seen_ids:
+                sanitized = True
+                continue
             loaded.append(
                 BotDefinition(
-                    bot_id=str(entry["bot_id"]),
+                    bot_id=bot_id,
                     display_name=str(entry["display_name"]),
-                    base_controller_type=ControllerType(str(entry["base_controller_type"])),
+                    base_controller_type=base_controller_type,
                     description=str(entry.get("description", "")),
                     parameters=merge_with_family_defaults(
-                        ControllerType(str(entry["base_controller_type"])),
+                        base_controller_type,
                         dict(entry.get("parameters", {})),
                     ),
                     is_builtin=False,
                 )
             )
+            seen_ids.add(bot_id)
         except (KeyError, ValueError, TypeError):
+            sanitized = True
             continue
+    if sanitized:
+        _write_custom_bot_definitions(tuple(loaded), storage_path=path)
     return tuple(loaded)
 
 
