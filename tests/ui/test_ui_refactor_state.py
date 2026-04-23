@@ -6,6 +6,7 @@ from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettl
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import DevelopmentCardType, GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
+from catan.controllers.human_controller import HumanController
 from catan.ui.pygame_ui.app import PygameApp
 from catan.ui.pygame_ui.renderer import PygameRenderer, primary_turn_button_state
 
@@ -206,6 +207,24 @@ def test_phase_banner_uses_setup_player_when_turn_is_none() -> None:
 
     assert color == (92, 178, 92)
     assert label == "Setup fase • P2: plaats een settlement"
+
+
+def test_hand_view_player_uses_active_player_for_human_turn() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+
+    hand_player = app._hand_view_player(state, 1, {1: HumanController(), 2: object()})
+
+    assert hand_player == 1
+
+
+def test_hand_view_player_hides_bot_hand_and_shows_previous_player() -> None:
+    app = PygameApp(DummyPygame())
+    state = replace(make_state(), turn=TurnState(current_player=2, step=TurnStep.ACTIONS))
+
+    hand_player = app._hand_view_player(state, 2, {1: HumanController(), 2: object()})
+
+    assert hand_player == 1
 
 
 def test_clicking_dice_button_only_rolls() -> None:

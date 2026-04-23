@@ -121,6 +121,7 @@ class PygameRenderer:
         discard_ui: dict[str, object] | None,
         dev_card_ui: dict[str, object] | None = None,
         event_log_offset: int = 0,
+        hand_view_player: int | None = None,
     ) -> DrawnUi:
         legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end = extract_legal_targets(
             state, legal_actions, build_mode=build_mode
@@ -150,8 +151,9 @@ class PygameRenderer:
             height=height,
             event_log_offset=event_log_offset,
         )
+        hand_player = active_player if hand_view_player is None else hand_view_player
         dev_card_rects = self._draw_bottom_bar(
-            screen, state, active_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui, legal_actions
+            screen, state, hand_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui, legal_actions
         )
         self._draw_dice_button_in_board_area(
             screen,

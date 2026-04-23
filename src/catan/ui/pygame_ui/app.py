@@ -205,6 +205,7 @@ class PygameApp:
             layout = build_circular_layout(state.board, center=board_center, radius=board_radius)
 
             active_player = self._active_player(state)
+            hand_view_player = self._hand_view_player(state, active_player, controllers)
             discard_selection_player = self._sync_discard_selection(
                 state,
                 active_player,
@@ -285,6 +286,7 @@ class PygameApp:
                 discard_ui=discard_ui,
                 dev_card_ui=dev_card_ui,
                 event_log_offset=event_log_offset,
+                hand_view_player=hand_view_player,
             )
             settings_ui = self._draw_settings_ui(screen, menu_open=settings_menu_open)
 
@@ -1114,3 +1116,15 @@ class PygameApp:
         if state.turn is not None:
             return state.turn.current_player
         return state.setup.pending_settlement_player or state.setup.pending_road_player
+
+    def _hand_view_player(self, state: GameState, active_player: int | None, controllers: Mapping[int, Controller]) -> int | None:
+        if active_player is None:
+            return None
+        controller = controllers.get(active_player)
+        if isinstance(controller, HumanController):
+            return active_player
+        player_order = sorted(state.players.keys())
+        if active_player not in player_order:
+            return active_player
+        active_idx = player_order.index(active_player)
+        return player_order[(active_idx - 1) % len(player_order)]
