@@ -63,7 +63,11 @@ class HeuristicBotController:
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
         candidates = [action for action in legal_actions if not isinstance(action, ProposePlayerTrade)]
         if not candidates:
-            raise ValueError("HeuristicBotController received no selectable legal actions.")
+            if not legal_actions:
+                raise ValueError("HeuristicBotController received no legal actions.")
+            fallback = legal_actions[self._rng.randrange(len(legal_actions))]
+            self._record_decision(chosen_action=fallback, scored_candidates=[(fallback, -5.0)], legal_action_count=len(legal_actions))
+            return fallback
 
         state = observation.state if isinstance(observation, DebugObservation) else None
         if state is not None:
