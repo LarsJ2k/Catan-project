@@ -8,6 +8,7 @@ from .models.action import (
     BuildCity,
     BuildRoad,
     BuildSettlement,
+    BuyDevelopmentCard,
     DiscardResources,
     EndTurn,
     MoveRobber,
@@ -23,7 +24,7 @@ from .models.action import (
     StealResource,
 )
 from .models.board import EdgeId, NodeId, PlayerId, TileId
-from .models.enums import GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
+from .models.enums import DevelopmentCardType, GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
 from .models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, PlayerTradeState, SetupState, TurnState
 from .observer import DebugObservation, Observation, PlayerObservation, PublicPlayerView
 from .rng import next_u32, roll_two_d6
@@ -36,6 +37,11 @@ SETTLEMENT_COST = {
     ResourceType.GRAIN: 1,
 }
 CITY_COST = {ResourceType.ORE: 3, ResourceType.GRAIN: 2}
+DEVELOPMENT_CARD_COST = {
+    ResourceType.ORE: 1,
+    ResourceType.GRAIN: 1,
+    ResourceType.WOOL: 1,
+}
 BANK_TRADE_RATE = 4
 
 TERRAIN_TO_RESOURCE = {
@@ -44,6 +50,15 @@ TERRAIN_TO_RESOURCE = {
     TerrainType.PASTURE: ResourceType.WOOL,
     TerrainType.FIELDS: ResourceType.GRAIN,
     TerrainType.MOUNTAINS: ResourceType.ORE,
+}
+
+
+DEVELOPMENT_CARD_DISTRIBUTION = {
+    DevelopmentCardType.KNIGHT: 14,
+    DevelopmentCardType.VICTORY_POINT: 5,
+    DevelopmentCardType.ROAD_BUILDING: 2,
+    DevelopmentCardType.YEAR_OF_PLENTY: 2,
+    DevelopmentCardType.MONOPOLY: 2,
 }
 
 
@@ -57,6 +72,7 @@ def create_initial_state(config: InitialGameConfig) -> GameState:
 
     robber_tile_id = next((tile.id for tile in config.board.tiles if tile.terrain == TerrainType.DESERT), None)
 
+    dev_deck, shuffled_rng = _build_and_shuffle_dev_deck(config.seed)
     return GameState(
         board=config.board,
         players=players,
@@ -68,8 +84,9 @@ def create_initial_state(config: InitialGameConfig) -> GameState:
         ),
         turn=None,
         placed=PlacedPieces(),
-        rng_state=config.seed,
+        rng_state=shuffled_rng,
         robber_tile_id=robber_tile_id,
+        dev_deck=dev_deck,
     )
 
 
@@ -106,6 +123,8 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
         BuildSettlement(player_id=player_id, node_id=node_id) for node_id in _legal_settlement_nodes_main(state, player_id)
     )
     legal_actions.extend(BuildCity(player_id=player_id, node_id=node_id) for node_id in _legal_city_nodes(state, player_id))
+    if _can_buy_development_card(state, player_id):
+        legal_actions.append(BuyDevelopmentCard(player_id=player_id))
     legal_actions.extend(_legal_bank_trades(state, player_id))
     return legal_actions
 
@@ -134,6 +153,8 @@ def apply_action(state: GameState, action: Action) -> GameState:
         return _apply_build_settlement(state, action)
     if isinstance(action, BuildCity):
         return _apply_build_city(state, action)
+    if isinstance(action, BuyDevelopmentCard):
+        return _apply_buy_development_card(state, action)
     if isinstance(action, BankTrade):
         return _apply_bank_trade(state, action)
     if isinstance(action, ProposePlayerTrade):
@@ -167,15 +188,20 @@ def get_observation(state: GameState, player_id: PlayerId, *, debug: bool = Fals
             player_id=pid,
             victory_points=pstate.victory_points,
             resource_count=sum(pstate.resources.values()),
+            dev_card_count=sum(pstate.dev_cards.values()),
         )
         for pid, pstate in state.players.items()
     )
+    own_dev_cards = {card_type.name: count for card_type, count in own.dev_cards.items()}
 
     return PlayerObservation(
         requesting_player_id=player_id,
         current_player_id=state.turn.current_player if state.turn else None,
         phase=state.phase.name,
         own_resources=own_resources,
+        own_dev_cards=own_dev_cards,
+        own_total_victory_points=_total_victory_points(own),
+        dev_deck_remaining=len(state.dev_deck),
         players_public=players_public,
     )
 
@@ -553,6 +579,21 @@ def _apply_build_city(state: GameState, action: BuildCity) -> GameState:
     return _update_winner(next_state, action.player_id)
 
 
+def _apply_buy_development_card(state: GameState, action: BuyDevelopmentCard) -> GameState:
+    player = _pay_cost(state.players[action.player_id], DEVELOPMENT_CARD_COST)
+    drawn_card = state.dev_deck[0]
+    remaining_deck = state.dev_deck[1:]
+    dev_cards = dict(player.dev_cards)
+    dev_cards[drawn_card] += 1
+    updated_player = replace(player, dev_cards=dev_cards)
+    next_state = replace(
+        state,
+        players={**state.players, action.player_id: updated_player},
+        dev_deck=remaining_deck,
+    )
+    return _update_winner(next_state, action.player_id)
+
+
 def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
     player = state.players[action.player_id]
     resources = dict(player.resources)
@@ -757,6 +798,32 @@ def _pay_cost(player: PlayerState, cost: dict[ResourceType, int]) -> PlayerState
 
 
 def _update_winner(state: GameState, player_id: PlayerId) -> GameState:
-    if state.players[player_id].victory_points >= 10:
+    if _total_victory_points(state.players[player_id]) >= 10:
         return replace(state, winner=player_id, phase=GamePhase.GAME_OVER)
     return state
+
+
+def _can_buy_development_card(state: GameState, player_id: PlayerId) -> bool:
+    if state.turn is None or state.turn.step != TurnStep.ACTIONS:
+        return False
+    if state.turn.current_player != player_id:
+        return False
+    if not state.dev_deck:
+        return False
+    return _has_resources(state.players[player_id], DEVELOPMENT_CARD_COST)
+
+
+def _total_victory_points(player: PlayerState) -> int:
+    return player.victory_points + player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
+
+
+def _build_and_shuffle_dev_deck(seed: int) -> tuple[tuple[DevelopmentCardType, ...], int]:
+    deck: list[DevelopmentCardType] = []
+    for card_type, amount in DEVELOPMENT_CARD_DISTRIBUTION.items():
+        deck.extend([card_type] * amount)
+    rng_state = seed
+    for index in range(len(deck) - 1, 0, -1):
+        value, rng_state = next_u32(rng_state)
+        swap_index = value % (index + 1)
+        deck[index], deck[swap_index] = deck[swap_index], deck[index]
+    return tuple(deck), rng_state

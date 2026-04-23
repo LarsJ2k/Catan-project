@@ -100,6 +100,11 @@ class EndTurn(ActionBase):
     pass
 
 
+@dataclass(frozen=True)
+class BuyDevelopmentCard(ActionBase):
+    pass
+
+
 Action = (
     PlaceSetupSettlement
     | PlaceSetupRoad
@@ -117,5 +122,6 @@ Action = (
     | RespondToTradePass
     | ChooseTradePartner
     | RejectTradeResponses
+    | BuyDevelopmentCard
     | EndTurn
 )

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice, StealResource
-from catan.core.models.enums import ResourceType, TerrainType, TurnStep
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, BuyDevelopmentCard, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice, StealResource
+from catan.core.models.enums import DevelopmentCardType, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 
 from .input_mapper import HoverTarget
@@ -289,12 +289,15 @@ class PygameRenderer:
         for pid in sorted(state.players):
             p = state.players[pid]
             hand_size = sum(p.resources.values())
+            dev_count = sum(p.dev_cards.values())
             row = self.pg.Rect(panel_x + 8, y, panel_width - 16, 24)
             self.pg.draw.rect(screen, (50, 50, 60), row, border_radius=4)
             screen.blit(self.small_font.render(f"P{pid}", True, self._player_color(pid)), (row.x + 8, row.y + 4))
             screen.blit(self.small_font.render(f"VP {p.victory_points}", True, (220, 220, 220)), (row.x + 46, row.y + 4))
-            screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.right - 88, row.y + 4))
+            screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.right - 154, row.y + 4))
+            screen.blit(self.small_font.render(f"Dev {dev_count}", True, (220, 220, 220)), (row.right - 74, row.y + 4))
             y += 28
+        screen.blit(self.small_font.render(f"Dev deck remaining: {len(state.dev_deck)}", True, (226, 226, 226)), (panel_x + 10, y + 4))
 
         roll_rect = self.pg.Rect(0, 0, 0, 0)
         end_rect = self.pg.Rect(0, 0, 0, 0)
@@ -366,6 +369,24 @@ class PygameRenderer:
         screen.blit(self.small_font.render(primary_label, True, (250, 250, 250)), (p_rect.x + 18, p_rect.y + 12))
         action_button_rects["primary"] = p_rect
         self._draw_dice_button(screen, panel_x, bar_y, legal_actions, action_button_rects, state)
+        self._draw_dev_card_panel(screen, state, active_player, panel_x, bar_y)
+
+    def _draw_dev_card_panel(self, screen, state: GameState, active_player: int | None, panel_x: int, bar_y: int) -> None:
+        if active_player is None:
+            return
+        player = state.players[active_player]
+        x = panel_x - 250
+        y = bar_y - 94
+        self.pg.draw.rect(screen, (44, 44, 56), (x, y, 236, 78), border_radius=6)
+        self.pg.draw.rect(screen, (86, 86, 98), (x, y, 236, 78), width=1, border_radius=6)
+        screen.blit(self.small_font.render("Your dev cards", True, (236, 236, 236)), (x + 8, y + 6))
+        summary = " | ".join(
+            f"{self._dev_card_name(card_type)}:{player.dev_cards.get(card_type, 0)}"
+            for card_type in DevelopmentCardType
+        )
+        screen.blit(self.small_font.render(summary, True, (214, 214, 214)), (x + 8, y + 30))
+        total = sum(player.dev_cards.values())
+        screen.blit(self.small_font.render(f"Total: {total}", True, (214, 214, 214)), (x + 8, y + 52))
 
     def _draw_dice_button(self, screen, panel_x: int, bar_y: int, legal_actions, action_button_rects: dict[str, object], state: GameState) -> None:
         can_roll = any(isinstance(a, RollDice) for a in legal_actions)
@@ -579,14 +600,7 @@ class PygameRenderer:
         if key == "city":
             return any(isinstance(a, BuildCity) for a in legal_actions)
         if key == "dev":
-            if active_player is None:
-                return False
-            player = state.players[active_player]
-            return (
-                player.resources.get(ResourceType.ORE, 0) >= 1
-                and player.resources.get(ResourceType.GRAIN, 0) >= 1
-                and player.resources.get(ResourceType.WOOL, 0) >= 1
-            )
+            return any(isinstance(a, BuyDevelopmentCard) for a in legal_actions)
         return False
 
     def _summarize_legal(self, legal_actions):
@@ -677,3 +691,13 @@ class PygameRenderer:
             ResourceType.WOOL: "Sheep",
         }
         return names[resource]
+
+    def _dev_card_name(self, card_type: DevelopmentCardType) -> str:
+        names = {
+            DevelopmentCardType.KNIGHT: "Knight",
+            DevelopmentCardType.VICTORY_POINT: "VP",
+            DevelopmentCardType.ROAD_BUILDING: "Road",
+            DevelopmentCardType.YEAR_OF_PLENTY: "YOP",
+            DevelopmentCardType.MONOPOLY: "Mono",
+        }
+        return names[card_type]

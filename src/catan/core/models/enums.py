@@ -39,3 +39,11 @@ class TurnStep(Enum):
 class PlayerTradePhase(Enum):
     RESPONSES = auto()
     PARTNER_SELECTION = auto()
+
+
+class DevelopmentCardType(Enum):
+    KNIGHT = auto()
+    VICTORY_POINT = auto()
+    ROAD_BUILDING = auto()
+    YEAR_OF_PLENTY = auto()
+    MONOPOLY = auto()

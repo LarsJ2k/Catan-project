@@ -9,6 +9,7 @@ from catan.core.models.action import (
     BuildCity,
     BuildRoad,
     BuildSettlement,
+    BuyDevelopmentCard,
     ChooseTradePartner,
     DiscardResources,
     EndTurn,
@@ -189,8 +190,6 @@ class PygameApp:
                                 trade_draft_offered = {r: 0 for r in ResourceType}
                                 trade_draft_requested = {r: 0 for r in ResourceType}
                                 selected_action_text = "Trade draft cancelled"
-                            elif clicked_action == "dev_placeholder":
-                                event_log.append(f"[{action_counter:03d}] Dev cards not implemented yet")
                             continue
                         selected_action_text = str(clicked_action)
                         controllers[active_player].submit_action_intent(clicked_action)
@@ -420,8 +419,7 @@ class PygameApp:
             if state.turn is not None and state.turn.step == TurnStep.ACTIONS and state.player_trade is None:
                 return "trade_open"
         if button_rects.get("dev") and button_rects["dev"].collidepoint(pos):
-            if self._can_afford_cost(state, active_player, {ResourceType.ORE: 1, ResourceType.GRAIN: 1, ResourceType.WOOL: 1}):
-                return "dev_placeholder"
+            return next((a for a in legal_actions if isinstance(a, BuyDevelopmentCard)), None)
         if button_rects.get("road") and button_rects["road"].collidepoint(pos):
             if build_mode == "road":
                 return "clear_mode"
@@ -584,10 +582,6 @@ class PygameApp:
         interested = ", ".join(f"P{pid}" for pid in trade.interested_responders)
         return f"Player trade select partner: interested=[{interested}]"
 
-    def _can_afford_cost(self, state: GameState, player_id: int, cost: dict[ResourceType, int]) -> bool:
-        resources = state.players[player_id].resources
-        return all(resources.get(resource, 0) >= need for resource, need in cost.items())
-
     def _describe_transition(self, before: GameState, after: GameState, action_text: str) -> list[str]:
         lines: list[str] = [f"applied {action_text}"]
 
@@ -622,8 +616,22 @@ class PygameApp:
         bank_trade_line = self._detect_bank_trade(before, after)
         if bank_trade_line is not None:
             lines.append(bank_trade_line)
+        if self._did_player_buy_development_card(before, after):
+            buyer = before.turn.current_player if before.turn is not None else after.turn.current_player if after.turn is not None else None
+            if buyer is not None:
+                lines.append(f"P{buyer} bought a development card")
         lines.extend(self._detect_player_trade_lines(before, after))
         return lines
+
+    def _did_player_buy_development_card(self, before: GameState, after: GameState) -> bool:
+        if len(after.dev_deck) != len(before.dev_deck) - 1:
+            return False
+        for player_id in before.players:
+            before_count = sum(before.players[player_id].dev_cards.values())
+            after_count = sum(after.players[player_id].dev_cards.values())
+            if after_count == before_count + 1:
+                return True
+        return False
 
     def _detect_player_trade_lines(self, before: GameState, after: GameState) -> list[str]:
         lines: list[str] = []
