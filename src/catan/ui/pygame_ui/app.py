@@ -408,6 +408,10 @@ class PygameApp:
                     event_log_offset = max(event_log_offset - 1, 0)
                     continue
                 if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                    if drawn.game_over_menu_button_rect is not None and drawn.game_over_menu_button_rect.collidepoint(event.pos):
+                        self.return_to_main_menu = True
+                        running = False
+                        continue
                     if spectator_mode:
                         selected_speed = self._match_speed_button(event.pos, drawn.speed_button_rects)
                         if selected_speed is not None:

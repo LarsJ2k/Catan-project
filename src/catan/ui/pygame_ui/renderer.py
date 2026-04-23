@@ -37,6 +37,7 @@ class DrawnUi:
     event_log_scroll_up_rect: object | None
     event_log_scroll_down_rect: object | None
     speed_button_rects: dict[float, object]
+    game_over_menu_button_rect: object | None
 
 
 def probability_dot_count(number_token: int | None) -> int:
@@ -178,8 +179,9 @@ class PygameRenderer:
             self._draw_discard_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, discard_ui)
         if dev_card_ui:
             self._draw_dev_card_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, dev_card_ui)
+        game_over_menu_button_rect = None
         if state.phase == GamePhase.GAME_OVER and state.winner is not None:
-            self._draw_game_over_overlay(screen, state.winner)
+            game_over_menu_button_rect = self._draw_game_over_overlay(screen, state.winner)
         return DrawnUi(
             roll_button_rect=roll_rect,
             end_turn_button_rect=end_rect,
@@ -188,6 +190,7 @@ class PygameRenderer:
             event_log_scroll_up_rect=scroll_up_rect,
             event_log_scroll_down_rect=scroll_down_rect,
             speed_button_rects=speed_button_rects,
+            game_over_menu_button_rect=game_over_menu_button_rect,
         )
 
     def _draw_phase_banner(self, screen, state: GameState, *, width: int, panel_x: int, fullscreen: bool, bottom_bar_height: int) -> None:
@@ -751,7 +754,7 @@ class PygameRenderer:
         screen.blit(self.small_font.render("Player Trade", True, (190, 190, 190)), (right_x + 36, y + 89))
         screen.blit(self.small_font.render("Cancel", True, (250, 250, 250)), (right_x + 57, y + 125))
 
-    def _draw_game_over_overlay(self, screen, winner_player_id: int) -> None:
+    def _draw_game_over_overlay(self, screen, winner_player_id: int) -> object:
         width, height = screen.get_size()
         overlay = self.pg.Surface((width, height), self.pg.SRCALPHA)
         overlay.fill((8, 8, 12, 145))
@@ -766,10 +769,19 @@ class PygameRenderer:
 
         title_font = self.pg.font.SysFont("arial", 30, bold=True)
         text_font = self.pg.font.SysFont("arial", 24)
+        button_font = self.pg.font.SysFont("arial", 20)
         title = title_font.render("Spel afgelopen", True, (245, 245, 245))
         winner_text = text_font.render(f"Speler P{winner_player_id} heeft gewonnen!", True, (245, 245, 245))
         screen.blit(title, (panel_x + (panel_w - title.get_width()) // 2, panel_y + 30))
         screen.blit(winner_text, (panel_x + (panel_w - winner_text.get_width()) // 2, panel_y + 82))
+        button_w = min(280, panel_w - 60)
+        button_h = 40
+        button_rect = self.pg.Rect(panel_x + (panel_w - button_w) // 2, panel_y + panel_h - button_h - 20, button_w, button_h)
+        self.pg.draw.rect(screen, (88, 114, 90), button_rect, border_radius=6)
+        self.pg.draw.rect(screen, (130, 160, 132), button_rect, width=1, border_radius=6)
+        button_text = button_font.render("Return to Main Menu", True, (245, 245, 245))
+        screen.blit(button_text, (button_rect.x + (button_w - button_text.get_width()) // 2, button_rect.y + 9))
+        return button_rect
 
     def _draw_player_trade_overlay(self, screen, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         overlay_h = max(int(bottom_h * 0.92), 165)
