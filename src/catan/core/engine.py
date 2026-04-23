@@ -182,7 +182,11 @@ def apply_action(state: GameState, action: Action) -> GameState:
     if isinstance(action, StealResource):
         return _apply_steal_resource(state, action)
     if isinstance(action, SkipSteal):
-        return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None), robber_source=None)
+        return replace(
+            state,
+            turn=replace(state.turn, step=_next_step_after_robber_resolution(state), priority_player=None),
+            robber_source=None,
+        )
     if isinstance(action, BuildRoad):
         return _apply_build_road(state, action)
     if isinstance(action, BuildSettlement):
@@ -552,7 +556,11 @@ def _apply_move_robber(state: GameState, action: MoveRobber) -> GameState:
     moved_state = replace(state, robber_tile_id=action.tile_id)
     targets = _eligible_robber_targets(moved_state, action.player_id)
     if not targets:
-        return replace(moved_state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None), robber_source=None)
+        return replace(
+            moved_state,
+            turn=replace(state.turn, step=_next_step_after_robber_resolution(state), priority_player=None),
+            robber_source=None,
+        )
     if len(targets) == 1:
         return _resolve_robber_steal(moved_state, action.player_id, targets[0])
     return replace(moved_state, turn=replace(state.turn, step=TurnStep.ROBBER_STEAL, priority_player=action.player_id))
@@ -567,7 +575,11 @@ def _resolve_robber_steal(state: GameState, player_id: PlayerId, target_player_i
     taker = state.players[player_id]
     available = [res for res, amount in target.resources.items() if amount > 0]
     if not available:
-        return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None), robber_source=None)
+        return replace(
+            state,
+            turn=replace(state.turn, step=_next_step_after_robber_resolution(state), priority_player=None),
+            robber_source=None,
+        )
 
     value, next_rng = next_u32(state.rng_state)
     resource = available[value % len(available)]
@@ -585,9 +597,19 @@ def _resolve_robber_steal(state: GameState, player_id: PlayerId, target_player_i
             target_player_id: replace(target, resources=target_res),
             player_id: replace(taker, resources=taker_res),
         },
-        turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
+        turn=replace(state.turn, step=_next_step_after_robber_resolution(state), priority_player=None),
         robber_source=None,
     )
+
+
+def _next_step_after_robber_resolution(state: GameState) -> TurnStep:
+    if (
+        state.robber_source == "knight"
+        and state.turn is not None
+        and state.turn.last_roll is None
+    ):
+        return TurnStep.ROLL
+    return TurnStep.ACTIONS
 
 
 def _eligible_robber_targets(state: GameState, player_id: PlayerId) -> list[PlayerId]:
