@@ -10,6 +10,16 @@ from catan.ui.pygame_ui.app import PygameApp
 
 def main() -> None:
     app = PygameApp(pygame)
+    while True:
+        launch_config = app.run_main_menu_and_setup()
+        if launch_config is None:
+            return
+        state = create_initial_state(
+            InitialGameConfig(
+                player_ids=tuple(slot.player_id for slot in launch_config.player_slots),
+                board=build_classic_19_tile_board(),
+                seed=launch_config.seed,
+            )
     launch_config = app.run_main_menu_and_setup()
     if launch_config is None:
         return
@@ -19,8 +29,9 @@ def main() -> None:
             board=build_classic_19_tile_board(seed=launch_config.seed),
             seed=launch_config.seed,
         )
-    )
-    app.run(state, create_controllers(launch_config))
+        app.run(state, create_controllers(launch_config))
+        if not app.return_to_main_menu:
+            return
 
 
 if __name__ == "__main__":

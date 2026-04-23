@@ -44,6 +44,7 @@ class PygameApp:
         self.height = height
         self.fullscreen = False
         self.runner = LocalPygameRunner()
+        self.return_to_main_menu = False
 
     def run_main_menu_and_setup(self) -> GameLaunchConfig | None:
         self.pg.init()
@@ -195,6 +196,8 @@ class PygameApp:
         trade_draft_requested = {r: 0 for r in ResourceType}
         trade_window_open = False
         year_of_plenty_selected = {r: 0 for r in ResourceType}
+        settings_menu_open = False
+        self.return_to_main_menu = False
 
         running = True
         while running:
@@ -283,6 +286,7 @@ class PygameApp:
                 dev_card_ui=dev_card_ui,
                 event_log_offset=event_log_offset,
             )
+            settings_ui = self._draw_settings_ui(screen, menu_open=settings_menu_open)
 
             for event in self.pg.event.get():
                 if event.type == self.pg.QUIT:
@@ -303,6 +307,22 @@ class PygameApp:
                 if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 5:
                     event_log_offset = max(event_log_offset - 1, 0)
                     continue
+                if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                    settings_click = self._handle_settings_click(event.pos, settings_ui, settings_menu_open)
+                    if settings_click == "toggle":
+                        settings_menu_open = not settings_menu_open
+                        continue
+                    if settings_click == "quit_menu":
+                        self.return_to_main_menu = True
+                        running = False
+                        continue
+                    if settings_click == "quit_desktop":
+                        self.return_to_main_menu = False
+                        running = False
+                        continue
+                    if settings_menu_open:
+                        settings_menu_open = False
+                        continue
 
                 if active_player is None or active_player not in controllers:
                     continue
@@ -454,6 +474,49 @@ class PygameApp:
 
         self.pg.quit()
         return state
+
+    def _draw_settings_ui(self, screen, *, menu_open: bool) -> dict[str, object]:
+        font = self.pg.font.SysFont("arial", 24)
+        small_font = self.pg.font.SysFont("arial", 18)
+        width, _ = screen.get_size()
+        settings_rect = self.pg.Rect(width - 52, 12, 40, 40)
+        self.pg.draw.rect(screen, (60, 60, 70), settings_rect, border_radius=8)
+        gear_text = font.render("⚙", True, (240, 240, 240))
+        screen.blit(gear_text, (settings_rect.x + 10, settings_rect.y + 5))
+        ui: dict[str, object] = {"settings_button_rect": settings_rect}
+        if not menu_open:
+            return ui
+        menu_rect = self.pg.Rect(width - 242, 58, 230, 100)
+        self.pg.draw.rect(screen, (42, 42, 50), menu_rect, border_radius=8)
+        self.pg.draw.rect(screen, (80, 80, 95), menu_rect, width=1, border_radius=8)
+        to_menu_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 12, menu_rect.width - 24, 34)
+        to_desktop_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 54, menu_rect.width - 24, 34)
+        self.pg.draw.rect(screen, (88, 114, 90), to_menu_rect, border_radius=5)
+        self.pg.draw.rect(screen, (110, 78, 78), to_desktop_rect, border_radius=5)
+        screen.blit(small_font.render("Quit to Main Menu", True, (245, 245, 245)), (to_menu_rect.x + 14, to_menu_rect.y + 9))
+        screen.blit(small_font.render("Quit to Desktop", True, (245, 245, 245)), (to_desktop_rect.x + 20, to_desktop_rect.y + 9))
+        ui["settings_menu_rect"] = menu_rect
+        ui["quit_to_menu_rect"] = to_menu_rect
+        ui["quit_to_desktop_rect"] = to_desktop_rect
+        return ui
+
+    def _handle_settings_click(
+        self,
+        pos: tuple[int, int],
+        settings_ui: dict[str, object],
+        menu_open: bool,
+    ) -> str | None:
+        if settings_ui["settings_button_rect"].collidepoint(pos):
+            return "toggle"
+        if not menu_open:
+            return None
+        if settings_ui["quit_to_menu_rect"].collidepoint(pos):
+            return "quit_menu"
+        if settings_ui["quit_to_desktop_rect"].collidepoint(pos):
+            return "quit_desktop"
+        if settings_ui["settings_menu_rect"].collidepoint(pos):
+            return "menu"
+        return None
 
     def _sync_discard_selection(
         self,

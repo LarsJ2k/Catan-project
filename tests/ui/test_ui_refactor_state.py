@@ -393,3 +393,27 @@ def test_dev_card_click_action_only_returns_legal_knight_action() -> None:
     assert app._dev_card_click_action((0, 0), rects, [knight_action]) == knight_action
     assert app._dev_card_click_action((0, 0), rects, []) is None
     assert app._dev_card_click_action((0, 0), {DevelopmentCardType.KNIGHT: DummyRect(False)}, [knight_action]) is None
+
+
+def test_settings_click_toggles_when_gear_is_clicked() -> None:
+    app = PygameApp(DummyPygame())
+    settings_ui = {
+        "settings_button_rect": DummyRect(True),
+    }
+
+    assert app._handle_settings_click((0, 0), settings_ui, menu_open=False) == "toggle"
+
+
+def test_settings_click_selects_quit_actions_when_menu_is_open() -> None:
+    app = PygameApp(DummyPygame())
+    settings_ui = {
+        "settings_button_rect": DummyRect(False),
+        "quit_to_menu_rect": DummyRect(True),
+        "quit_to_desktop_rect": DummyRect(False),
+        "settings_menu_rect": DummyRect(False),
+    }
+    assert app._handle_settings_click((0, 0), settings_ui, menu_open=True) == "quit_menu"
+
+    settings_ui["quit_to_menu_rect"] = DummyRect(False)
+    settings_ui["quit_to_desktop_rect"] = DummyRect(True)
+    assert app._handle_settings_click((0, 0), settings_ui, menu_open=True) == "quit_desktop"
