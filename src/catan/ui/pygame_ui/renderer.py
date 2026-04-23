@@ -411,21 +411,47 @@ class PygameRenderer:
         return roll_rect, end_rect, action_button_rects, up_rect, down_rect, speed_button_rects
 
     def _draw_decision_panel(self, screen, *, panel_x: int, panel_width: int, height: int, spectator_data: dict[str, object]) -> None:
-        panel_h = 140
+        panel_h = 280
         rect = self.pg.Rect(panel_x + 8, height - panel_h - 8, panel_width - 16, panel_h)
         self.pg.draw.rect(screen, (46, 46, 54), rect, border_radius=8)
         self.pg.draw.rect(screen, (78, 78, 88), rect, width=1, border_radius=8)
-        screen.blit(self.font.render("Bot decision", True, (238, 238, 238)), (rect.x + 10, rect.y + 10))
-        chosen = spectator_data.get("chosen_line")
-        if isinstance(chosen, str):
-            screen.blit(self.small_font.render(f"✓ {chosen[:40]}", True, (150, 225, 150)), (rect.x + 10, rect.y + 38))
-        lines = spectator_data.get("candidate_lines", [])
-        if isinstance(lines, list):
-            for idx, line in enumerate(lines[:2]):
-                screen.blit(self.small_font.render(f"{idx + 1}. {str(line)[:42]}", True, (215, 215, 215)), (rect.x + 10, rect.y + 60 + idx * 20))
-        fallback = spectator_data.get("fallback_message")
-        if isinstance(fallback, str):
-            screen.blit(self.small_font.render(fallback[:46], True, (215, 215, 215)), (rect.x + 10, rect.y + 102))
+        screen.blit(self.font.render("Bot decisions", True, (238, 238, 238)), (rect.x + 10, rect.y + 8))
+        player_decisions = spectator_data.get("player_decisions", {})
+        row_gap = 6
+        content_top = rect.y + 34
+        player_row_h = max((rect.height - 42 - (row_gap * 3)) // 4, 56)
+        for row_idx in range(4):
+            player_id = row_idx + 1
+            row_y = content_top + row_idx * (player_row_h + row_gap)
+            row_rect = self.pg.Rect(rect.x + 8, row_y, rect.width - 16, player_row_h)
+            player_color = self._player_color(player_id)
+            self.pg.draw.rect(screen, (36, 36, 44), row_rect, border_radius=6)
+            self.pg.draw.rect(screen, player_color, row_rect, width=2, border_radius=6)
+            screen.blit(self.small_font.render(f"P{player_id}", True, player_color), (row_rect.x + 8, row_rect.y + 5))
+
+            histories = player_decisions.get(player_id, []) if isinstance(player_decisions, dict) else []
+            if not isinstance(histories, list) or not histories:
+                screen.blit(self.small_font.render("Wachten op keuzes...", True, (190, 190, 198)), (row_rect.x + 54, row_rect.y + 5))
+                continue
+
+            line_y = row_rect.y + 5
+            for history_idx, history in enumerate(histories[:2]):
+                if not isinstance(history, dict):
+                    continue
+                prefix = f"K{history_idx + 1}"
+                candidate_lines = history.get("candidate_lines", [])
+                if isinstance(candidate_lines, list) and candidate_lines:
+                    top_line = f"{prefix} 1) {str(candidate_lines[0])[:34]}"
+                    screen.blit(self.small_font.render(top_line, True, (215, 215, 220)), (row_rect.x + 54, line_y))
+                    line_y += 16
+                    if len(candidate_lines) > 1:
+                        second_line = f"{prefix} 2) {str(candidate_lines[1])[:34]}"
+                        screen.blit(self.small_font.render(second_line, True, (195, 195, 202)), (row_rect.x + 54, line_y))
+                        line_y += 16
+                else:
+                    fallback = history.get("fallback_message", "Geen kandidaatdata")
+                    screen.blit(self.small_font.render(f"{prefix} {str(fallback)[:34]}", True, (190, 190, 198)), (row_rect.x + 54, line_y))
+                    line_y += 16
 
     def _draw_spectator_dashboard(
         self,
