@@ -16,7 +16,7 @@ def main() -> None:
     state = create_initial_state(
         InitialGameConfig(
             player_ids=tuple(slot.player_id for slot in launch_config.player_slots),
-            board=build_classic_19_tile_board(),
+            board=build_classic_19_tile_board(seed=launch_config.seed),
             seed=launch_config.seed,
         )
     )
