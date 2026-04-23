@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Sequence
 
-from catan.core.models.action import Action, DiscardResources
+from catan.core.models.action import Action, DiscardResources, ProposePlayerTrade
 from catan.core.observer import Observation
 
 
@@ -30,4 +30,6 @@ class HumanController:
             return True
         if isinstance(candidate, DiscardResources):
             return any(isinstance(action, DiscardResources) for action in legal_actions)
+        if isinstance(candidate, ProposePlayerTrade):
+            return True
         return False
