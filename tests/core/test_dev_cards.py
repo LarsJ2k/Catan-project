@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions, get_observation
-from catan.core.models.action import BuyDevelopmentCard, MoveRobber, PlayKnightCard, StealResource
+from catan.core.models.action import BuyDevelopmentCard, EndTurn, MoveRobber, PlayKnightCard, RollDice, StealResource
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import DevelopmentCardType, GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, SetupState, TurnState
@@ -199,6 +199,51 @@ def test_knight_play_requires_owned_and_playable_knight() -> None:
 
     state = replace(state, players={1: replace(state.players[1], new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}), 2: state.players[2]})
     assert PlayKnightCard(player_id=1) in get_legal_actions(state, 1)
+
+
+def test_knight_can_be_played_during_roll_step_when_available() -> None:
+    state = make_main_turn_state()
+    state = replace(state, turn=TurnState(current_player=1, step=TurnStep.ROLL))
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.KNIGHT] = 1
+    state = replace(
+        state,
+        players={
+            1: replace(state.players[1], dev_cards=cards, new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}),
+            2: state.players[2],
+        },
+    )
+
+    legal_actions = get_legal_actions(state, 1)
+    assert RollDice(player_id=1) in legal_actions
+    assert PlayKnightCard(player_id=1) in legal_actions
+
+
+def test_knight_bought_last_turn_is_playable_before_next_roll() -> None:
+    state = make_main_turn_state()
+    state = replace(
+        state,
+        turn=TurnState(current_player=1, step=TurnStep.ACTIONS),
+        dev_deck=(DevelopmentCardType.KNIGHT,),
+        players={
+            1: replace(
+                state.players[1],
+                resources={
+                    **state.players[1].resources,
+                    ResourceType.GRAIN: 1,
+                    ResourceType.WOOL: 1,
+                    ResourceType.ORE: 1,
+                },
+            ),
+            2: state.players[2],
+        },
+    )
+
+    after_buy = apply_action(state, BuyDevelopmentCard(player_id=1))
+    assert PlayKnightCard(player_id=1) not in get_legal_actions(after_buy, 1)
+    after_end = apply_action(after_buy, EndTurn(player_id=1))
+    back_to_p1 = replace(after_end, turn=TurnState(current_player=1, step=TurnStep.ROLL))
+    assert PlayKnightCard(player_id=1) in get_legal_actions(back_to_p1, 1)
 
 
 def test_knight_moves_robber_without_discard_and_steal_flow_matches_rules() -> None:

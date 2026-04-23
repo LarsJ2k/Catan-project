@@ -7,7 +7,7 @@ from catan.core.engine import create_initial_state
 from catan.core.models.action import BuildRoad, BuildSettlement, EndTurn, MoveRobber, PlaceSetupRoad, RollDice, StealResource
 from catan.core.models.enums import ResourceType
 from catan.core.models.state import InitialGameConfig, PlacedPieces
-from catan.ui.pygame_ui.renderer import extract_legal_targets, probability_dot_count
+from catan.ui.pygame_ui.renderer import PygameRenderer, extract_legal_targets, probability_dot_count
 
 
 def test_extract_legal_targets_splits_nodes_edges_tiles_and_buttons() -> None:
@@ -60,3 +60,17 @@ def test_probability_dot_count_mapping() -> None:
     assert probability_dot_count(6) == 5
     assert probability_dot_count(7) == 0
     assert probability_dot_count(None) == 0
+
+
+def test_scoreboard_vp_text_includes_largest_army_and_longest_road_bonus() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3), board=build_classic_19_tile_board(), seed=1))
+    state = replace(
+        state,
+        largest_army_holder=1,
+        longest_road_holder=1,
+        players={**state.players, 1: replace(state.players[1], victory_points=3)},
+    )
+
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    vp_text = renderer._scoreboard_vp_text(state, player_id=1)
+    assert vp_text == "VP 7"
