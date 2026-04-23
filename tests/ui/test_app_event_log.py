@@ -232,3 +232,28 @@ def test_describe_transition_year_of_plenty_only_logs_combined_gain() -> None:
     assert "P1 received 1 Lumber and 1 Sheep" in lines
     assert "P1 received 1 Lumber" not in lines
     assert "P1 received 1 Sheep" not in lines
+
+
+def test_describe_transition_monopoly_logs_combined_gain_only_once() -> None:
+    app = PygameApp(DummyPygame())
+    before = replace(
+        make_state(),
+        turn=TurnState(current_player=1, step=TurnStep.MONOPOLY),
+        players={
+            1: replace(make_state().players[1], resources={r: 0 for r in ResourceType}),
+            2: replace(make_state().players[2], resources={**{r: 0 for r in ResourceType}, ResourceType.ORE: 3}),
+        },
+    )
+    after = replace(
+        before,
+        turn=TurnState(current_player=1, step=TurnStep.ACTIONS),
+        players={
+            1: replace(before.players[1], resources={**before.players[1].resources, ResourceType.ORE: 3}),
+            2: replace(before.players[2], resources={**before.players[2].resources, ResourceType.ORE: 0}),
+        },
+    )
+
+    lines = app._describe_transition(before, after, "ChooseMonopolyResource(player_id=1, resource='ORE')")
+    assert "P1 played Monopoly on Ore" in lines
+    assert "P1 collected 3 Ore" in lines
+    assert "P1 received 3 Ore" not in lines
