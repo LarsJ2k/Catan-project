@@ -233,6 +233,33 @@ def test_knight_can_be_played_during_roll_step_when_available() -> None:
     assert PlayKnightCard(player_id=1) in legal_actions
 
 
+def test_knight_before_roll_returns_to_roll_after_robber_resolution() -> None:
+    state = make_main_turn_state()
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.KNIGHT] = 1
+    state = replace(
+        state,
+        turn=TurnState(current_player=1, step=TurnStep.ROLL),
+        placed=PlacedPieces(settlements={0: 2}),
+        players={
+            1: replace(
+                state.players[1],
+                dev_cards=cards,
+                new_dev_cards={card_type: 0 for card_type in DevelopmentCardType},
+            ),
+            2: replace(state.players[2], resources={resource: 1 for resource in ResourceType}),
+        },
+        robber_tile_id=None,
+    )
+
+    after_play = apply_action(state, PlayKnightCard(player_id=1))
+    assert after_play.turn.step == TurnStep.ROBBER_MOVE
+
+    after_move = apply_action(after_play, MoveRobber(player_id=1, tile_id=0))
+    assert after_move.turn.step == TurnStep.ROLL
+    assert RollDice(player_id=1) in get_legal_actions(after_move, 1)
+
+
 def test_knight_bought_last_turn_is_playable_before_next_roll() -> None:
     state = make_main_turn_state()
     state = replace(
