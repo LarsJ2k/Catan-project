@@ -288,6 +288,14 @@ def test_build_mode_is_not_cleared_by_non_button_click() -> None:
     assert clicked is None
 
 
+def test_effective_build_mode_forces_road_during_road_building_step() -> None:
+    app = PygameApp(DummyPygame())
+    state = replace(make_state(), turn=TurnState(current_player=1, step=TurnStep.ROAD_BUILDING))
+
+    assert app._effective_build_mode(state, None) == "road"
+    assert app._effective_build_mode(state, "city") == "road"
+
+
 def test_clicking_dev_button_returns_buy_dev_action_when_legal() -> None:
     app = PygameApp(DummyPygame())
     state = make_state()

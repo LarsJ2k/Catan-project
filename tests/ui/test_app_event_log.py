@@ -207,3 +207,28 @@ def test_describe_transition_dev_card_purchase_does_not_leak_card_type() -> None
 
     assert "P1 bought a development card" in lines
     assert not any("victory" in line.lower() for line in lines)
+
+
+def test_describe_transition_year_of_plenty_only_logs_combined_gain() -> None:
+    app = PygameApp(DummyPygame())
+    before = replace(make_state(), turn=TurnState(current_player=1, step=TurnStep.YEAR_OF_PLENTY))
+    after = replace(
+        before,
+        turn=TurnState(current_player=1, step=TurnStep.ACTIONS),
+        players={
+            1: replace(
+                before.players[1],
+                resources={
+                    **before.players[1].resources,
+                    ResourceType.LUMBER: 1,
+                    ResourceType.WOOL: 1,
+                },
+            ),
+            2: before.players[2],
+        },
+    )
+
+    lines = app._describe_transition(before, after, "ChooseYearOfPlentyResources(player_id=1, resources=[...])")
+    assert "P1 received 1 Lumber and 1 Sheep" in lines
+    assert "P1 received 1 Lumber" not in lines
+    assert "P1 received 1 Sheep" not in lines
