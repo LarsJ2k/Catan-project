@@ -7,7 +7,7 @@ from typing import Sequence
 from catan.core.models.action import Action, ProposePlayerTrade
 from catan.core.observer import Observation
 
-DEFAULT_BOT_ACTION_DELAY_SECONDS = 0.6
+DEFAULT_BOT_ACTION_DELAY_SECONDS = 1.2
 
 
 class RandomBotController:

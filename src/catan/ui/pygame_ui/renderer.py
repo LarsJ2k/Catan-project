@@ -21,7 +21,7 @@ from catan.core.models.action import (
     RollDice,
     StealResource,
 )
-from catan.core.models.enums import DevelopmentCardType, ResourceType, TerrainType, TurnStep
+from catan.core.models.enums import DevelopmentCardType, GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 
 from .input_mapper import HoverTarget
@@ -168,6 +168,8 @@ class PygameRenderer:
             self._draw_discard_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, discard_ui)
         if dev_card_ui:
             self._draw_dev_card_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, dev_card_ui)
+        if state.phase == GamePhase.GAME_OVER and state.winner is not None:
+            self._draw_game_over_overlay(screen, state.winner)
         return DrawnUi(
             roll_button_rect=roll_rect,
             end_turn_button_rect=end_rect,
@@ -537,6 +539,8 @@ class PygameRenderer:
             self.pg.draw.circle(screen, (30, 30, 30), pip, 3)
 
     def _phase_banner_config(self, state: GameState) -> tuple[tuple[int, int, int], str]:
+        if state.phase == GamePhase.GAME_OVER and state.winner is not None:
+            return self._player_color(state.winner), f"Game over • P{state.winner} heeft gewonnen"
         active_player = self._active_player_for_banner(state)
         if active_player is None:
             return (120, 95, 40), "Speler onbekend"
@@ -611,6 +615,26 @@ class PygameRenderer:
         screen.blit(self.small_font.render("Bank Trade", True, (250, 250, 250)), (right_x + 40, y + 53))
         screen.blit(self.small_font.render("Player Trade", True, (190, 190, 190)), (right_x + 36, y + 89))
         screen.blit(self.small_font.render("Cancel", True, (250, 250, 250)), (right_x + 57, y + 125))
+
+    def _draw_game_over_overlay(self, screen, winner_player_id: int) -> None:
+        width, height = screen.get_size()
+        overlay = self.pg.Surface((width, height), self.pg.SRCALPHA)
+        overlay.fill((8, 8, 12, 145))
+        screen.blit(overlay, (0, 0))
+
+        panel_w = min(max(int(width * 0.46), 360), 700)
+        panel_h = min(max(int(height * 0.22), 150), 260)
+        panel_x = (width - panel_w) // 2
+        panel_y = (height - panel_h) // 2
+        self.pg.draw.rect(screen, (36, 36, 44), (panel_x, panel_y, panel_w, panel_h), border_radius=10)
+        self.pg.draw.rect(screen, self._player_color(winner_player_id), (panel_x, panel_y, panel_w, panel_h), width=3, border_radius=10)
+
+        title_font = self.pg.font.SysFont("arial", 30, bold=True)
+        text_font = self.pg.font.SysFont("arial", 24)
+        title = title_font.render("Spel afgelopen", True, (245, 245, 245))
+        winner_text = text_font.render(f"Speler P{winner_player_id} heeft gewonnen!", True, (245, 245, 245))
+        screen.blit(title, (panel_x + (panel_w - title.get_width()) // 2, panel_y + 30))
+        screen.blit(winner_text, (panel_x + (panel_w - winner_text.get_width()) // 2, panel_y + 82))
 
     def _draw_player_trade_overlay(self, screen, panel_x: int, height: int, bottom_h: int, trade_ui: dict[str, object]) -> None:
         overlay_h = max(int(bottom_h * 0.92), 165)

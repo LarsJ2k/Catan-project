@@ -37,6 +37,7 @@ class TurnState:
     step: TurnStep = TurnStep.ROLL
     last_roll: Optional[tuple[int, int]] = None
     priority_player: Optional[PlayerId] = None
+    dev_card_played_this_turn: bool = False
 
 
 @dataclass
