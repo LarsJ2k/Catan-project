@@ -3,7 +3,8 @@ from __future__ import annotations
 from catan.controllers.random_bot_controller import RandomBotController
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.human_controller import HumanController
-from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState, available_controller_types
+from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState, TournamentSetupState, available_controller_types
+from catan.runners.tournament import TournamentFormat
 from catan.runners.launcher import create_controllers
 
 
@@ -113,3 +114,20 @@ def test_available_controller_types_keep_human_first() -> None:
     assert controller_types[0] == ControllerType.HUMAN
     assert ControllerType.RANDOM_BOT in controller_types
     assert ControllerType.HEURISTIC_BOT in controller_types
+
+
+def test_tournament_setup_requires_valid_selection() -> None:
+    invalid = TournamentSetupState(
+        selected_bots=(),
+        format=TournamentFormat.FIXED_LINEUP_BATCH.value,
+    )
+    assert invalid.to_tournament_config() is None
+
+    valid = TournamentSetupState(
+        selected_bots=(ControllerType.RANDOM_BOT, ControllerType.HEURISTIC_BOT),
+        format=TournamentFormat.FIXED_LINEUP_BATCH.value,
+    )
+    config = valid.to_tournament_config()
+    assert config is not None
+    assert config.fixed_lineup is not None
+    assert len(config.fixed_lineup) == 4

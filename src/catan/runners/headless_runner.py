@@ -10,6 +10,15 @@ from catan.core.models.state import GameState
 
 class HeadlessRunner:
     def play_until_terminal(self, state: GameState, controllers: Mapping[int, Controller], max_steps: int = 10_000) -> GameState:
+        final_state, _ = self.play_until_terminal_with_steps(state, controllers, max_steps=max_steps)
+        return final_state
+
+    def play_until_terminal_with_steps(
+        self,
+        state: GameState,
+        controllers: Mapping[int, Controller],
+        max_steps: int = 10_000,
+    ) -> tuple[GameState, int]:
         steps = 0
         current = state
         while not is_terminal(current) and steps < max_steps:
@@ -26,7 +35,7 @@ class HeadlessRunner:
             action = controller.choose_action(observation, legal)
             current = apply_action(current, action)
             steps += 1
-        return current
+        return current, steps
 
     def _active_player(self, state: GameState) -> int | None:
         if state.turn is not None and state.turn.priority_player is not None:

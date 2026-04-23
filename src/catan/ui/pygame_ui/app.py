@@ -36,10 +36,13 @@ from catan.runners.game_setup import (
     AppScreen,
     GameLaunchConfig,
     GameSetupState,
+    TournamentSetupState,
     available_controller_types,
     controller_label,
 )
 from catan.runners.local_pygame_runner import LocalPygameRunner
+from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat, export_tournament_result
+from catan.controllers.bot_catalog import list_bot_specs
 
 from .input_mapper import HoverTarget, PygameInputMapper
 from .layout import build_circular_layout
@@ -65,6 +68,8 @@ class PygameApp:
         font = self.pg.font.SysFont("arial", 28)
         small_font = self.pg.font.SysFont("arial", 22)
         flow_state = GameSetupState()
+        tournament_state = TournamentSetupState()
+        tournament_summary_lines: list[str] = []
         selected_seed_input = False
         list_scroll_offset = 0
 
@@ -72,7 +77,8 @@ class PygameApp:
             width, height = screen.get_size()
             title_rect = self.pg.Rect(40, 20, width - 80, 50)
             new_game_rect = self.pg.Rect(width // 2 - 120, height // 2 - 20, 240, 48)
-            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 44, 240, 48)
+            tournament_rect = self.pg.Rect(width // 2 - 120, height // 2 + 44, 240, 48)
+            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 108, 240, 48)
             back_rect = self.pg.Rect(40, height - 70, 160, 42)
             start_rect = self.pg.Rect(width - 220, height - 70, 180, 42)
             seed_slider_rect = self.pg.Rect(60, height - 230, 350, 36)
@@ -117,10 +123,12 @@ class PygameApp:
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                         if new_game_rect.collidepoint(event.pos):
                             flow_state = flow_state.go_to_setup()
+                        elif tournament_rect.collidepoint(event.pos):
+                            flow_state = GameSetupState(screen=AppScreen.TOURNAMENT_SETUP)
                         elif quit_rect.collidepoint(event.pos):
                             self.pg.quit()
                             return None
-                else:
+                elif flow_state.screen == AppScreen.GAME_SETUP:
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                         selected_seed_input = seed_input_rect.collidepoint(event.pos)
                         if back_rect.collidepoint(event.pos):
@@ -167,16 +175,60 @@ class PygameApp:
                             flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text[:-1])
                         elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not flow_state.fixed_seed_text)):
                             flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text + event.unicode)
+                elif flow_state.screen == AppScreen.TOURNAMENT_SETUP:
+                    bot_specs = list_bot_specs()
+                    if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                        if back_rect.collidepoint(event.pos):
+                            flow_state = flow_state.back_to_menu()
+                            continue
+                        if start_rect.collidepoint(event.pos):
+                            config = tournament_state.to_tournament_config()
+                            if config is not None:
+                                result = HeadlessTournamentRunner().run(config)
+                                json_path, csv_path = export_tournament_result(result)
+                                tournament_summary_lines = [
+                                    f"Matches: {len(result.matches)}",
+                                    f"JSON: {json_path}" if json_path is not None else "JSON: disabled",
+                                    f"CSV: {csv_path}" if csv_path is not None else "CSV: disabled",
+                                ]
+                                for bot, agg in sorted(result.aggregates.items(), key=lambda item: item[1].win_rate, reverse=True):
+                                    tournament_summary_lines.append(
+                                        f"{controller_label(bot)} - games={agg.games_played}, wins={agg.wins}, "
+                                        f"win%={agg.win_rate:.3f}, avg_vp={agg.average_final_vp:.2f}, avg_rank={agg.average_rank:.2f}"
+                                    )
+                    if event.type == self.pg.KEYDOWN:
+                        if event.key == self.pg.K_1:
+                            tournament_state = tournament_state.with_format(TournamentFormat.FIXED_LINEUP_BATCH.value)
+                        elif event.key == self.pg.K_2:
+                            tournament_state = tournament_state.with_format(TournamentFormat.ROUND_ROBIN.value)
+                        elif event.key == self.pg.K_r:
+                            tournament_state = tournament_state.with_seat_rotation_enabled(not tournament_state.seat_rotation_enabled)
+                        elif event.key == self.pg.K_j:
+                            tournament_state = tournament_state.with_export_json(not tournament_state.export_json)
+                        elif event.key == self.pg.K_c:
+                            tournament_state = tournament_state.with_export_csv(not tournament_state.export_csv)
+                        elif event.key == self.pg.K_MINUS:
+                            new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
+                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                        elif event.key == self.pg.K_EQUALS:
+                            new_seed_blocks = int(tournament_state.seed_blocks_text or "1") + 1
+                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                        elif self.pg.K_a <= event.key <= self.pg.K_z:
+                            index = event.key - self.pg.K_a
+                            if 0 <= index < len(bot_specs):
+                                tournament_state = tournament_state.toggle_bot(bot_specs[index].controller_type)
 
             screen.fill((20, 20, 28))
-            title = "Main Menu" if flow_state.screen == AppScreen.MAIN_MENU else "Game Setup"
+            title = "Main Menu" if flow_state.screen == AppScreen.MAIN_MENU else ("Game Setup" if flow_state.screen == AppScreen.GAME_SETUP else "Tournament / Simulation")
             screen.blit(font.render(title, True, (240, 240, 240)), (title_rect.x, title_rect.y))
             if flow_state.screen == AppScreen.MAIN_MENU:
                 self.pg.draw.rect(screen, (70, 120, 70), new_game_rect)
+                self.pg.draw.rect(screen, (70, 90, 130), tournament_rect)
                 self.pg.draw.rect(screen, (120, 70, 70), quit_rect)
                 screen.blit(font.render("New Game", True, (255, 255, 255)), (new_game_rect.x + 45, new_game_rect.y + 8))
+                screen.blit(small_font.render("Tournament / Simulation", True, (255, 255, 255)), (tournament_rect.x + 15, tournament_rect.y + 12))
                 screen.blit(font.render("Quit", True, (255, 255, 255)), (quit_rect.x + 85, quit_rect.y + 8))
-            else:
+            elif flow_state.screen == AppScreen.GAME_SETUP:
                 screen.blit(small_font.render("Configured Players", True, (220, 220, 235)), (left_slots_x, 85))
                 for idx, rect in enumerate(slot_rects):
                     slot_controller = flow_state.slot_controller(idx)
@@ -244,6 +296,40 @@ class PygameApp:
                 if not flow_state.can_start_game():
                     msg = "Add at least 2 players and use a valid fixed seed."
                     screen.blit(small_font.render(msg, True, (220, 130, 130)), (60, height - 125))
+            else:
+                bot_specs = list_bot_specs()
+                lines = [
+                    "Controls: [A..] toggle bots, [1] fixed lineup, [2] round robin, [R] seat rotation",
+                    "[J] json export, [C] csv export, [-]/[=] seed blocks, Run Tournament button to execute.",
+                    f"Format: {tournament_state.format}",
+                    f"Seed blocks: {tournament_state.seed_blocks_text}",
+                    f"Seat rotation: {'on' if tournament_state.seat_rotation_enabled else 'off'}",
+                    f"Export JSON: {'on' if tournament_state.export_json else 'off'}",
+                    f"Export CSV: {'on' if tournament_state.export_csv else 'off'}",
+                    "Selected bots:",
+                ]
+                y = 90
+                for line in lines:
+                    screen.blit(small_font.render(line, True, (220, 220, 235)), (60, y))
+                    y += 30
+                for idx, spec in enumerate(bot_specs):
+                    selected = spec.controller_type in tournament_state.selected_bots
+                    prefix = chr(ord("A") + idx)
+                    color = (150, 220, 170) if selected else (180, 180, 200)
+                    screen.blit(small_font.render(f"[{prefix}] {spec.label}", True, color), (80, y))
+                    y += 28
+                start_color = (70, 120, 70) if tournament_state.to_tournament_config() is not None else (80, 80, 80)
+                self.pg.draw.rect(screen, (90, 90, 90), back_rect)
+                self.pg.draw.rect(screen, start_color, start_rect)
+                screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
+                screen.blit(small_font.render("Run Tournament", True, (255, 255, 255)), (start_rect.x + 20, start_rect.y + 10))
+                if tournament_summary_lines:
+                    y = max(y + 20, height // 2)
+                    screen.blit(small_font.render("Summary:", True, (240, 240, 240)), (60, y))
+                    y += 30
+                    for line in tournament_summary_lines[:10]:
+                        screen.blit(small_font.render(line, True, (200, 220, 200)), (60, y))
+                        y += 24
 
             self.pg.display.flip()
             clock.tick(30)
