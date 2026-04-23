@@ -309,3 +309,31 @@ def test_discard_overlay_submit_stays_blocked_until_required_count() -> None:
     }
 
     assert app._handle_discard_overlay_click((0, 0), discard_ui, state, 1, selection) is None
+
+
+def test_sync_discard_selection_resets_when_discard_player_changes() -> None:
+    app = PygameApp(DummyPygame())
+    state = replace(
+        make_state(),
+        turn=TurnState(current_player=2, step=TurnStep.DISCARD),
+        discard_requirements={1: 3, 2: 4},
+    )
+    selection = {r: 0 for r in ResourceType}
+    selection[ResourceType.BRICK] = 2
+
+    current_player = app._sync_discard_selection(state, 2, selection, 1)
+
+    assert current_player == 2
+    assert all(amount == 0 for amount in selection.values())
+
+
+def test_sync_discard_selection_clears_when_discard_phase_ends() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    selection = {r: 0 for r in ResourceType}
+    selection[ResourceType.ORE] = 1
+
+    current_player = app._sync_discard_selection(state, 1, selection, 1)
+
+    assert current_player is None
+    assert all(amount == 0 for amount in selection.values())
