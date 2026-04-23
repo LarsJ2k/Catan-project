@@ -418,6 +418,8 @@ class PygameApp:
                             else:
                                 settings_delay_error = "No bot controllers found."
                         continue
+                    if settings_click == "menu":
+                        continue
                     if settings_menu_open:
                         settings_menu_open = False
                         continue
