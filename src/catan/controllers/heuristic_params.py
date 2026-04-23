@@ -52,6 +52,14 @@ class HeuristicScoringParams:
     bank_trade_direct_build_bonus: float = 10.0
     trade_interest_threshold: float = 0.0
     trade_scarcity_penalty: float = 0.5
+    setup_expansion_profile_bonus: float = 0.0
+    setup_city_dev_profile_bonus: float = 0.0
+    setup_profile_missing_penalty: float = 0.0
+    road_when_settlement_available_penalty: float = 0.0
+    road_settlement_resource_lock_penalty: float = 0.0
+    road_no_settlement_progress_bonus: float = 0.0
+    dev_when_city_ready_penalty: float = 0.0
+    dev_when_city_near_penalty: float = 0.0
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, float | int | str | bool]) -> HeuristicScoringParams:
@@ -109,6 +117,49 @@ def default_family_parameters(controller_type: ControllerType) -> dict[str, floa
             knight_play_weight=8.0,
             bank_trade_direct_build_bonus=34.0,
             trade_scarcity_penalty=0.6,
+        )
+        return {**params.as_dict()}
+    if controller_type == ControllerType.HEURISTIC_V1_FIXED:
+        return default_family_parameters(ControllerType.HEURISTIC_V1_BASELINE)
+    if controller_type == ControllerType.HEURISTIC_V1_1:
+        params = HeuristicScoringParams(
+            grain_value=1.2,
+            ore_value=1.3,
+            immediate_win_score=50_000.0,
+            roll_score=20_000.0,
+            settlement_base_score=292.0,
+            city_base_score=278.0,
+            road_base_score=14.0,
+            dev_buy_base_score=98.0,
+            bank_trade_base_score=26.0,
+            end_turn_base_score=5.0,
+            pip_weight=0.92,
+            diversity_weight=3.6,
+            missing_resource_weight=3.0,
+            expansion_weight=1.8,
+            wood_brick_bonus=6.0,
+            ore_wheat_bonus=6.0,
+            pair_synergy_weight=5.0,
+            road_to_target_weight=0.11,
+            dead_road_penalty=18.0,
+            dead_road_no_targets_penalty=28.0,
+            save_for_settlement_penalty=24.0,
+            save_for_settlement_delta_penalty=10.0,
+            save_for_settlement_mid_penalty=7.5,
+            port_reach_weight=0.2,
+            longest_road_weight=1.0,
+            dev_buy_weight=1.5,
+            knight_play_weight=8.0,
+            bank_trade_direct_build_bonus=34.0,
+            trade_scarcity_penalty=0.6,
+            setup_expansion_profile_bonus=13.0,
+            setup_city_dev_profile_bonus=10.0,
+            setup_profile_missing_penalty=3.5,
+            road_when_settlement_available_penalty=24.0,
+            road_settlement_resource_lock_penalty=14.0,
+            road_no_settlement_progress_bonus=12.0,
+            dev_when_city_ready_penalty=26.0,
+            dev_when_city_near_penalty=12.0,
         )
         return {**params.as_dict()}
     return {}

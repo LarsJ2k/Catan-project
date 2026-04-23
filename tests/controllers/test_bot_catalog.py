@@ -5,6 +5,7 @@ from pathlib import Path
 from catan.controllers.bot_catalog import build_bot_controller, build_bot_controller_from_definition, list_bot_specs
 from catan.controllers.bot_catalog import create_custom_bot_definition, list_bot_definitions
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
+from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.controllers.random_bot_controller import RandomBotController
 from catan.runners.game_setup import ControllerType
@@ -17,16 +18,20 @@ def test_bot_catalog_contains_random_and_heuristic_bots() -> None:
     assert ControllerType.RANDOM_BOT in types
     assert ControllerType.HEURISTIC_BOT in types
     assert ControllerType.HEURISTIC_V1_BASELINE in types
+    assert ControllerType.HEURISTIC_V1_FIXED in types
+    assert ControllerType.HEURISTIC_V1_1 in types
 
 
 def test_bot_catalog_builds_expected_controllers() -> None:
     random_bot = build_bot_controller(ControllerType.RANDOM_BOT, enable_bot_delay=False)
     heuristic_bot = build_bot_controller(ControllerType.HEURISTIC_BOT, enable_bot_delay=False)
     heuristic_v1 = build_bot_controller(ControllerType.HEURISTIC_V1_BASELINE, enable_bot_delay=False)
+    heuristic_v1_1 = build_bot_controller(ControllerType.HEURISTIC_V1_1, enable_bot_delay=False)
 
     assert isinstance(random_bot, RandomBotController)
     assert isinstance(heuristic_bot, HeuristicBotController)
     assert isinstance(heuristic_v1, HeuristicV1BaselineBotController)
+    assert isinstance(heuristic_v1_1, HeuristicV1_1BotController)
 
 
 def test_custom_bot_persistence_and_name_validation(tmp_path: Path) -> None:
