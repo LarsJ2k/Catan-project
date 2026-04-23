@@ -5,14 +5,16 @@ from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions
 from catan.core.models.action import (
     ChooseTradePartner,
+    DiscardResources,
     EndTurn,
     ProposePlayerTrade,
     RejectTradeResponses,
     RespondToTradeInterested,
     RespondToTradePass,
 )
-from catan.core.models.enums import ResourceType
-from catan.core.models.state import InitialGameConfig
+from catan.core.models.enums import GamePhase, ResourceType, TurnStep
+from catan.core.models.state import InitialGameConfig, TurnState
+from catan.core.observer import DebugObservation
 from catan.runners.headless_runner import HeadlessRunner
 
 
@@ -113,3 +115,26 @@ def test_bot_rng_does_not_affect_engine_determinism() -> None:
 
     assert state_a == state_b
     assert state_a.rng_state == state_b.rng_state
+
+
+def test_random_bot_builds_valid_discard_action_from_placeholder() -> None:
+    bot = RandomBotController(seed=13, enable_delay=False)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=77))
+    state.phase = GamePhase.MAIN_TURN
+    state.turn = TurnState(current_player=1, priority_player=1, step=TurnStep.DISCARD)
+    state.discard_requirements = {1: 2}
+    state.players[1].resources = {
+        ResourceType.BRICK: 2,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 0,
+        ResourceType.ORE: 0,
+    }
+
+    action = bot.choose_action(
+        observation=DebugObservation(state=state),
+        legal_actions=[DiscardResources(player_id=1, resources=tuple())],
+    )
+
+    assert isinstance(action, DiscardResources)
+    assert sum(amount for _, amount in action.resources) == 2
