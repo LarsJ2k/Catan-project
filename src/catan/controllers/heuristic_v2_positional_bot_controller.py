@@ -9,6 +9,7 @@ from catan.core.engine import apply_action
 from catan.core.models.action import (
     Action,
     BuyDevelopmentCard,
+    DiscardResources,
     ProposePlayerTrade,
     RollDice,
     StealResource,
@@ -48,6 +49,25 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             chosen = super().choose_action(observation, candidates)
             if isinstance(self._last_decision, dict):
                 self._last_decision["kind"] = "heuristic_v2_positional"
+            return chosen
+        discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
+        if discard_placeholder is not None:
+            chosen = self._choose_discard_action(state, discard_placeholder.player_id)
+            self._last_decision = {
+                "kind": "heuristic_v2_positional",
+                "chosen_action": chosen,
+                "top_candidates": [
+                    {
+                        "action": chosen,
+                        "action_score": 25.0,
+                        "normalized_action_score": 100.0,
+                        "position_score": 0.0,
+                        "combined_score": 25.0,
+                        "summary": "discard policy",
+                    }
+                ],
+                "legal_action_count": len(candidates),
+            }
             return chosen
 
         candidate_count = max(1, int(self._params.candidate_count))

@@ -7,8 +7,8 @@ from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2
 from catan.controllers.heuristic_v2_position_evaluator import HeuristicV2PositionEvaluator
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, EndTurn, ProposePlayerTrade
-from catan.core.models.enums import ResourceType, TurnStep
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, DiscardResources, EndTurn, ProposePlayerTrade
+from catan.core.models.enums import GamePhase, ResourceType, TurnStep
 from catan.core.models.state import InitialGameConfig, TurnState
 from catan.core.observer import DebugObservation
 from catan.runners.game_setup import ControllerType
@@ -87,6 +87,29 @@ def test_v2_prefers_city_over_dev_like_low_value_trade_action() -> None:
         ],
     )
     assert isinstance(chosen, BuildCity)
+
+
+def test_v2_builds_valid_discard_action_from_placeholder() -> None:
+    state = _state(106)
+    state.phase = GamePhase.MAIN_TURN
+    state.turn = TurnState(current_player=1, priority_player=1, step=TurnStep.DISCARD)
+    state.discard_requirements = {1: 3}
+    state.players[1].resources = {
+        ResourceType.BRICK: 2,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 1,
+    }
+    bot = HeuristicV2PositionalBotController(seed=5, enable_delay=False)
+
+    action = bot.choose_action(
+        observation=DebugObservation(state=state),
+        legal_actions=[DiscardResources(player_id=1, resources=tuple())],
+    )
+
+    assert isinstance(action, DiscardResources)
+    assert sum(amount for _, amount in action.resources) == 3
 
 
 def test_position_evaluator_rewards_vp_and_production_and_penalties() -> None:
