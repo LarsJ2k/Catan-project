@@ -121,3 +121,69 @@ def test_heuristic_bot_rng_does_not_affect_engine_determinism() -> None:
 
     assert state_a == state_b
     assert state_a.rng_state == state_b.rng_state
+
+
+def test_heuristic_prefers_settlement_over_weak_road_when_both_available() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=22))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    bot = HeuristicBotController(seed=2, enable_delay=False)
+
+    road = BuildRoad(player_id=1, edge_id=0)
+    settlement = BuildSettlement(player_id=1, node_id=0)
+    chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[road, settlement])
+
+    assert chosen == settlement
+
+
+def test_heuristic_end_turn_beats_dead_road() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=31))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.placed.settlements[0] = 2
+    state.placed.settlements[1] = 2
+    state.placed.settlements[11] = 2
+    state.placed.settlements[12] = 2
+    bot = HeuristicBotController(seed=2, enable_delay=False)
+
+    dead_road = BuildRoad(player_id=1, edge_id=0)
+    chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[dead_road, EndTurn(player_id=1)])
+
+    assert isinstance(chosen, EndTurn)
+
+
+def test_heuristic_prefers_road_that_advances_to_stronger_target() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=44))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.placed.settlements[10] = 1
+    bot = HeuristicBotController(seed=9, enable_delay=False)
+
+    anchor_edges = list(state.board.node_to_adjacent_edges[10])
+    scored = [(edge_id, bot._score_road(BuildRoad(player_id=1, edge_id=edge_id), state)) for edge_id in anchor_edges]
+    best_edge_id = max(scored, key=lambda pair: pair[1])[0]
+    worst_edge_id = min(scored, key=lambda pair: pair[1])[0]
+    road_to_strong_target = BuildRoad(player_id=1, edge_id=best_edge_id)
+    road_to_weaker_target = BuildRoad(player_id=1, edge_id=worst_edge_id)
+    chosen = bot.choose_action(
+        observation=DebugObservation(state=state),
+        legal_actions=[road_to_weaker_target, road_to_strong_target],
+    )
+
+    assert chosen == road_to_strong_target
+
+
+def test_heuristic_save_for_settlement_penalizes_road_spend() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=55))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {
+        ResourceType.BRICK: 1,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 0,
+    }
+    state.placed.settlements[10] = 1
+    bot = HeuristicBotController(seed=4, enable_delay=False)
+
+    road = BuildRoad(player_id=1, edge_id=11)
+    chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[road, EndTurn(player_id=1)])
+
+    assert isinstance(chosen, EndTurn)
