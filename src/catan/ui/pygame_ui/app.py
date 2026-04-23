@@ -41,7 +41,7 @@ from catan.runners.game_setup import (
     controller_label,
 )
 from catan.runners.local_pygame_runner import LocalPygameRunner
-from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat, export_tournament_result
+from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat, export_tournament_result, generate_match_configs
 from catan.controllers.bot_catalog import create_custom_bot_definition, get_bot_definition, list_bot_definitions
 from catan.controllers.heuristic_params import merge_with_family_defaults
 
@@ -219,7 +219,26 @@ class PygameApp:
                         if start_rect.collidepoint(event.pos):
                             config = tournament_state.to_tournament_config()
                             if config is not None:
-                                result = HeadlessTournamentRunner().run(config)
+                                total_matches = len(generate_match_configs(config))
+
+                                def _render_tournament_progress(completed_matches: int, total_matches_count: int) -> None:
+                                    screen.fill((17, 17, 26))
+                                    progress_title = font.render("Running Tournament...", True, (240, 240, 245))
+                                    progress_text = small_font.render(
+                                        f"{completed_matches}/{total_matches_count} matches complete",
+                                        True,
+                                        (210, 230, 210),
+                                    )
+                                    instruction = small_font.render("Please wait while matches are simulated.", True, (185, 185, 205))
+                                    screen.blit(progress_title, (width // 2 - progress_title.get_width() // 2, height // 2 - 48))
+                                    screen.blit(progress_text, (width // 2 - progress_text.get_width() // 2, height // 2 - 4))
+                                    screen.blit(instruction, (width // 2 - instruction.get_width() // 2, height // 2 + 28))
+                                    if hasattr(self.pg, "event"):
+                                        self.pg.event.pump()
+                                    self.pg.display.flip()
+
+                                _render_tournament_progress(0, total_matches)
+                                result = HeadlessTournamentRunner().run(config, progress_callback=_render_tournament_progress)
                                 json_path, csv_path = export_tournament_result(result)
                                 tournament_summary_lines = [
                                     f"Matches: {len(result.matches)}",
