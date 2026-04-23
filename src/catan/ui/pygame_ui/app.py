@@ -109,7 +109,7 @@ class PygameApp:
                         for idx, rect in enumerate(slot_rects):
                             if rect.collidepoint(event.pos):
                                 current = flow_state.player_slots[idx].controller_type
-                                next_type = ControllerType.BOT_PLACEHOLDER if current == ControllerType.HUMAN else ControllerType.HUMAN
+                                next_type = ControllerType.RANDOM_BOT if current == ControllerType.HUMAN else ControllerType.HUMAN
                                 flow_state = flow_state.with_player_controller(idx, next_type)
                                 break
                     if selected_seed_input and event.type == self.pg.KEYDOWN and not flow_state.use_random_seed:
@@ -131,7 +131,7 @@ class PygameApp:
                 for idx, rect in enumerate(slot_rects):
                     slot = flow_state.player_slots[idx]
                     self.pg.draw.rect(screen, (60, 60, 90), rect)
-                    label = f"Player {slot.player_id}: {'Human' if slot.controller_type == ControllerType.HUMAN else 'Bot (placeholder)'}"
+                    label = f"Player {slot.player_id}: {'Human' if slot.controller_type == ControllerType.HUMAN else 'Bot (random)'}"
                     screen.blit(small_font.render(label, True, (255, 255, 255)), (rect.x + 10, rect.y + 8))
                 self.pg.draw.rect(screen, (80, 80, 120), seed_slider_rect, border_radius=18)
                 slider_mid_x = seed_slider_rect.centerx
