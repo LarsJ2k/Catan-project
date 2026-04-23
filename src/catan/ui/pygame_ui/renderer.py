@@ -449,27 +449,31 @@ class PygameRenderer:
             y = bar_y + top_pad + row * (cell_h + row_gap)
             px = left_pad + base_col * (cell_w + card_gap)
             dx = left_pad + (base_col + 1) * (cell_w + card_gap)
-            for x, title, bg in (
-                (px, f"P{player_id} Resources", (48, 48, 58)),
-                (dx, f"P{player_id} Dev", (44, 44, 54)),
-            ):
-                rect = self.pg.Rect(x, y, cell_w, cell_h)
-                border = self._player_color(player_id) if player_id == active_player else (84, 84, 98)
-                self.pg.draw.rect(screen, bg, rect, border_radius=6)
-                self.pg.draw.rect(screen, border, rect, width=3 if player_id == active_player else 1, border_radius=6)
-                screen.blit(self.small_font.render(title, True, (230, 230, 236)), (rect.x + 4, rect.y + 4))
+            player_rect = self.pg.Rect(px, y, cell_w * 2 + card_gap, cell_h)
+            border = self._player_color(player_id) if player_id == active_player else (84, 84, 98)
+            self.pg.draw.rect(screen, (44, 44, 54), player_rect, border_radius=6)
+            self.pg.draw.rect(screen, border, player_rect, width=3 if player_id == active_player else 1, border_radius=6)
+            divider_x = dx - (card_gap // 2)
+            self.pg.draw.line(screen, (74, 74, 86), (divider_x, y + 3), (divider_x, y + cell_h - 3), 1)
+            screen.blit(self.small_font.render(f"P{player_id} Resources", True, (230, 230, 236)), (px + 6, y + 4))
+            screen.blit(self.small_font.render(f"P{player_id} Dev", True, (230, 230, 236)), (dx + 6, y + 4))
             player = state.players[player_id]
             row_y = y + 22
+            section_padding = 6
+            card_width = max((cell_w - section_padding * 2 - card_gap * 4) // 5, 20)
+            card_height = max(cell_h - 30, 34)
             for card_idx, resource in enumerate(resources):
-                card_x = px + 3 + card_idx * ((cell_w - 10) // 5)
+                card_x = px + section_padding + card_idx * (card_width + card_gap)
                 amount = player.resources.get(resource, 0)
-                self._draw_resource_card(screen, card_x, row_y, 18, 28, resource, amount, compact=True)
-            for card_idx, card_type in enumerate(dev_types):
-                card_x = dx + 3 + card_idx * ((cell_w - 10) // 5)
+                self._draw_resource_card(screen, card_x, row_y, card_width, card_height, resource, amount, compact=True)
+            visible_dev_types = [card_type for card_type in dev_types if player.dev_cards.get(card_type, 0) > 0]
+            dev_count = max(len(visible_dev_types), 1)
+            dev_card_width = max((cell_w - section_padding * 2 - card_gap * (dev_count - 1)) // dev_count, 20)
+            for card_idx, card_type in enumerate(visible_dev_types):
+                card_x = dx + section_padding + card_idx * (dev_card_width + card_gap)
                 amount = player.dev_cards.get(card_type, 0)
-                self.pg.draw.rect(screen, (78, 88, 112), (card_x, row_y, 18, 28), border_radius=3)
-                if amount > 0:
-                    screen.blit(self.small_font.render(str(amount), True, (245, 245, 245)), (card_x + 4, row_y + 7))
+                self.pg.draw.rect(screen, (78, 88, 112), (card_x, row_y, dev_card_width, card_height), border_radius=4)
+                screen.blit(self.small_font.render(str(amount), True, (245, 245, 245)), (card_x + 6, row_y + card_height // 2 - 6))
         return {}
 
     def _draw_triangle_icon(self, screen, rect, *, direction: str, color: tuple[int, int, int]) -> None:
