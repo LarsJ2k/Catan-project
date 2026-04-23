@@ -292,8 +292,9 @@ class PygameRenderer:
         self.pg.draw.rect(screen, (38, 38, 44), (panel_x, 0, panel_width, height))
         y = 12
         screen.blit(self.font.render("Event log", True, (238, 238, 238)), (panel_x + 10, y))
-        up_rect = self.pg.Rect(panel_x + panel_width - 60, y - 2, 22, 20)
-        down_rect = self.pg.Rect(panel_x + panel_width - 34, y - 2, 22, 20)
+        # Keep the event-log controls clear of the global settings button at the top-right.
+        up_rect = self.pg.Rect(panel_x + panel_width - 112, y - 2, 22, 20)
+        down_rect = self.pg.Rect(panel_x + panel_width - 86, y - 2, 22, 20)
         self.pg.draw.rect(screen, (60, 60, 70), up_rect, border_radius=3)
         self.pg.draw.rect(screen, (60, 60, 70), down_rect, border_radius=3)
         self._draw_triangle_icon(screen, up_rect, direction="up", color=(230, 230, 230))
