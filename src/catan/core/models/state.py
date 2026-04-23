@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .board import Board, EdgeId, NodeId, PlayerId, TileId
-from .enums import GamePhase, PlayerTradePhase, ResourceType, TurnStep
+from .enums import DevelopmentCardType, GamePhase, PlayerTradePhase, ResourceType, TurnStep
 
 
 @dataclass
@@ -16,6 +16,7 @@ class PlayerState:
     cities_left: int = 4
     victory_points: int = 0
     setup_settlements_placed: int = 0
+    dev_cards: dict[DevelopmentCardType, int] = field(default_factory=lambda: {card_type: 0 for card_type in DevelopmentCardType})
 
 
 @dataclass
@@ -67,6 +68,7 @@ class GameState:
     robber_tile_id: Optional[TileId] = None
     discard_requirements: dict[PlayerId, int] = field(default_factory=dict)
     player_trade: PlayerTradeState | None = None
+    dev_deck: tuple[DevelopmentCardType, ...] = ()
 
 
 @dataclass(frozen=True)

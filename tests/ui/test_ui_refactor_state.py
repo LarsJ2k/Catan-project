@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, DiscardResources, EndTurn, RollDice
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, BuyDevelopmentCard, DiscardResources, EndTurn, RollDice
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
@@ -123,7 +123,12 @@ def test_button_enablement_for_build_and_dev() -> None:
             2: state.players[2],
         },
     )
-    legal = [BuildRoad(player_id=1, edge_id=0), BuildSettlement(player_id=1, node_id=0), BuildCity(player_id=1, node_id=1)]
+    legal = [
+        BuildRoad(player_id=1, edge_id=0),
+        BuildSettlement(player_id=1, node_id=0),
+        BuildCity(player_id=1, node_id=1),
+        BuyDevelopmentCard(player_id=1),
+    ]
 
     assert renderer._is_action_enabled("road", legal, state, 1) is True
     assert renderer._is_action_enabled("settlement", legal, state, 1) is True
@@ -195,6 +200,24 @@ def test_build_mode_is_not_cleared_by_non_button_click() -> None:
     }
     clicked = app._handle_action_button_click((0, 0), button_rects, [], state, 1, "road", False)
     assert clicked is None
+
+
+def test_clicking_dev_button_returns_buy_dev_action_when_legal() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    button_rects = {
+        "trade": DummyRect(False),
+        "dev": DummyRect(True),
+        "road": DummyRect(False),
+        "settlement": DummyRect(False),
+        "city": DummyRect(False),
+        "primary": DummyRect(False),
+        "dice": DummyRect(False),
+        "trade_cancel": DummyRect(False),
+    }
+    buy_dev = BuyDevelopmentCard(player_id=1)
+    clicked = app._handle_action_button_click((0, 0), button_rects, [buy_dev], state, 1, None, False)
+    assert clicked == buy_dev
 
 
 def test_trade_overlay_clicks_follow_four_row_behavior() -> None:

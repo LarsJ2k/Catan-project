@@ -12,6 +12,7 @@ class PublicPlayerView:
     player_id: PlayerId
     victory_points: int
     resource_count: int
+    dev_card_count: int
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,9 @@ class PlayerObservation:
     current_player_id: Optional[PlayerId]
     phase: str
     own_resources: Mapping[str, int]
+    own_dev_cards: Mapping[str, int]
+    own_total_victory_points: int
+    dev_deck_remaining: int
     players_public: tuple[PublicPlayerView, ...]
 
 
