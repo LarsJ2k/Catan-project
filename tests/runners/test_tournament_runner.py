@@ -298,7 +298,7 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
 
     assert json_path is not None and json_path.exists()
     assert excel_path is not None and excel_path.exists()
-    summary_excel = tmp_path / "test_fixed_lineup_batch_1_1_tournament_summary.xlsx"
+    summary_excel = tmp_path / "test_fixed_lineup_batch_1_1_1_tournament_summary.xlsx"
     assert summary_excel.exists()
 
     match_rows = _read_xlsx_rows(excel_path)
@@ -309,6 +309,27 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert "match_id" in match_rows[0]
     assert "seat1_vp_total" in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
+
+
+def test_tournament_id_increments_between_runs(tmp_path: Path) -> None:
+    config = TournamentConfig(
+        selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
+        fixed_lineup=(
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+        ),
+        format=TournamentFormat.FIXED_LINEUP_BATCH,
+        seed_blocks=1,
+        output_options=TournamentOutputOptions(output_dir=str(tmp_path), output_prefix="test"),
+    )
+
+    first = HeadlessTournamentRunner().run(config)
+    second = HeadlessTournamentRunner().run(config)
+
+    assert first.tournament_id == "test_fixed_lineup_batch_1_1_1"
+    assert second.tournament_id == "test_fixed_lineup_batch_1_1_2"
 
 
 def _read_xlsx_rows(path: Path) -> list[list[str]]:
