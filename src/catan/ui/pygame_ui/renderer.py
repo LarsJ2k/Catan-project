@@ -897,7 +897,8 @@ class PygameRenderer:
         text = self._resource_name(resource)
         font = self.small_font if compact else self.font
         text_surface = font.render(text, True, (24, 24, 24))
-        screen.blit(text_surface, (x + 8, y + (9 if compact else 14)))
+        text_y = y + height - text_surface.get_height() - (3 if compact else 6)
+        screen.blit(text_surface, (x + 8, text_y))
         count_rect = self.pg.Rect(x + width - 24, y + 4, 20, 18)
         self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
         screen.blit(self.small_font.render(str(amount), True, (30, 30, 30)), (count_rect.x + 6, count_rect.y + 2))
