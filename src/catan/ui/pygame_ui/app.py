@@ -1312,5 +1312,16 @@ class PygameApp:
         player_order = sorted(state.players.keys())
         if active_player not in player_order:
             return active_player
+        human_players = {
+            player_id
+            for player_id in player_order
+            if isinstance(controllers.get(player_id), HumanController)
+        }
+        if not human_players:
+            return player_order[(player_order.index(active_player) - 1) % len(player_order)]
         active_idx = player_order.index(active_player)
-        return player_order[(active_idx - 1) % len(player_order)]
+        for offset in range(1, len(player_order) + 1):
+            candidate = player_order[(active_idx - offset) % len(player_order)]
+            if candidate in human_players:
+                return candidate
+        return min(human_players)
