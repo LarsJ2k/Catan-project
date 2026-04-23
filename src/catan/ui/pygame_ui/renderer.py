@@ -36,6 +36,7 @@ class DrawnUi:
     dev_card_rects: dict[DevelopmentCardType, object]
     event_log_scroll_up_rect: object | None
     event_log_scroll_down_rect: object | None
+    speed_button_rects: dict[float, object]
 
 
 def probability_dot_count(number_token: int | None) -> int:
@@ -122,13 +123,15 @@ class PygameRenderer:
         dev_card_ui: dict[str, object] | None = None,
         event_log_offset: int = 0,
         hand_view_player: int | None = None,
+        spectator_mode: bool = False,
+        spectator_data: dict[str, object] | None = None,
     ) -> DrawnUi:
         legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end = extract_legal_targets(
             state, legal_actions, build_mode=build_mode
         )
         width, height = screen.get_size()
         panel_width = max(int(width * 0.24), 320)
-        bottom_bar_height = max(int(height * 0.18), 130)
+        bottom_bar_height = max(int(height * (0.30 if spectator_mode else 0.18)), 130)
         panel_x = width - panel_width
 
         self.pg.draw.rect(screen, (28, 28, 32), (0, 0, width, height))
@@ -136,7 +139,7 @@ class PygameRenderer:
         self._draw_tiles(screen, state, layout, legal_tiles, hover_target.tile_id)
         self._draw_board(screen, state, layout, legal_nodes, legal_edges, steal_nodes, hover_target)
         self._draw_ports(screen, state, layout)
-        roll_rect, end_rect, action_button_rects, scroll_up_rect, scroll_down_rect = self._draw_side_panel(
+        roll_rect, end_rect, action_button_rects, scroll_up_rect, scroll_down_rect, speed_button_rects = self._draw_side_panel(
             screen,
             state,
             active_player,
@@ -150,20 +153,25 @@ class PygameRenderer:
             panel_width=panel_width,
             height=height,
             event_log_offset=event_log_offset,
+            spectator_mode=spectator_mode,
+            spectator_data=spectator_data or {},
         )
         hand_player = active_player if hand_view_player is None else hand_view_player
-        dev_card_rects = self._draw_bottom_bar(
-            screen, state, hand_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui, legal_actions
-        )
-        self._draw_dice_button_in_board_area(
-            screen,
-            state,
-            panel_x=panel_x,
-            height=height,
-            bottom_h=bottom_bar_height,
-            can_roll=can_roll,
-            action_button_rects=action_button_rects,
-        )
+        if spectator_mode:
+            dev_card_rects = self._draw_spectator_dashboard(screen, state, active_player, panel_x, height, bottom_bar_height)
+        else:
+            dev_card_rects = self._draw_bottom_bar(
+                screen, state, hand_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui, legal_actions
+            )
+            self._draw_dice_button_in_board_area(
+                screen,
+                state,
+                panel_x=panel_x,
+                height=height,
+                bottom_h=bottom_bar_height,
+                can_roll=can_roll,
+                action_button_rects=action_button_rects,
+            )
         if trade_ui:
             self._draw_trade_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, trade_ui)
         if discard_ui:
@@ -179,6 +187,7 @@ class PygameRenderer:
             dev_card_rects=dev_card_rects,
             event_log_scroll_up_rect=scroll_up_rect,
             event_log_scroll_down_rect=scroll_down_rect,
+            speed_button_rects=speed_button_rects,
         )
 
     def _draw_phase_banner(self, screen, state: GameState, *, width: int, panel_x: int, fullscreen: bool, bottom_bar_height: int) -> None:
@@ -288,6 +297,8 @@ class PygameRenderer:
         panel_width: int,
         height: int,
         event_log_offset: int,
+        spectator_mode: bool = False,
+        spectator_data: dict[str, object] | None = None,
     ):
         self.pg.draw.rect(screen, (38, 38, 44), (panel_x, 0, panel_width, height))
         y = 12
@@ -312,6 +323,22 @@ class PygameRenderer:
             y += log_line_height
 
         y = event_end + 12
+        speed_button_rects: dict[float, object] = {}
+        if spectator_mode:
+            speed_label_y = y
+            screen.blit(self.font.render("Speed", True, (238, 238, 238)), (panel_x + 10, speed_label_y))
+            y += 24
+            speed_options = [0.0, 1.0, 2.0, 4.0]
+            active_speed = float((spectator_data or {}).get("speed", 1.0))
+            button_w = (panel_width - 26) // 4
+            labels = {0.0: "Pause", 1.0: "1x", 2.0: "2x", 4.0: "4x"}
+            for idx, speed in enumerate(speed_options):
+                rect = self.pg.Rect(panel_x + 10 + idx * (button_w + 2), y, button_w, 28)
+                is_active = speed == active_speed
+                self.pg.draw.rect(screen, (86, 112, 150) if is_active else (70, 70, 72), rect, border_radius=5)
+                screen.blit(self.small_font.render(labels[speed], True, (245, 245, 245)), (rect.x + 10, rect.y + 7))
+                speed_button_rects[speed] = rect
+            y += 38
         screen.blit(self.font.render("Bank", True, (238, 238, 238)), (panel_x + 10, y))
         y += 24
         bank_counts = self._bank_counts(state)
@@ -355,8 +382,88 @@ class PygameRenderer:
             "player_trade": self.pg.Rect(0, 0, 0, 0),
             "trade_cancel": self.pg.Rect(0, 0, 0, 0),
         }
-        self._draw_sidebar_buttons(screen, state, legal_actions, can_roll, can_end, panel_x, panel_width, height, action_button_rects)
-        return roll_rect, end_rect, action_button_rects, up_rect, down_rect
+        if spectator_mode:
+            self._draw_decision_panel(
+                screen,
+                panel_x=panel_x,
+                panel_width=panel_width,
+                height=height,
+                spectator_data=spectator_data or {},
+            )
+        else:
+            self._draw_sidebar_buttons(screen, state, legal_actions, can_roll, can_end, panel_x, panel_width, height, action_button_rects)
+        return roll_rect, end_rect, action_button_rects, up_rect, down_rect, speed_button_rects
+
+    def _draw_decision_panel(self, screen, *, panel_x: int, panel_width: int, height: int, spectator_data: dict[str, object]) -> None:
+        panel_h = 140
+        rect = self.pg.Rect(panel_x + 8, height - panel_h - 8, panel_width - 16, panel_h)
+        self.pg.draw.rect(screen, (46, 46, 54), rect, border_radius=8)
+        self.pg.draw.rect(screen, (78, 78, 88), rect, width=1, border_radius=8)
+        screen.blit(self.font.render("Bot decision", True, (238, 238, 238)), (rect.x + 10, rect.y + 10))
+        chosen = spectator_data.get("chosen_line")
+        if isinstance(chosen, str):
+            screen.blit(self.small_font.render(f"✓ {chosen[:40]}", True, (150, 225, 150)), (rect.x + 10, rect.y + 38))
+        lines = spectator_data.get("candidate_lines", [])
+        if isinstance(lines, list):
+            for idx, line in enumerate(lines[:2]):
+                screen.blit(self.small_font.render(f"{idx + 1}. {str(line)[:42]}", True, (215, 215, 215)), (rect.x + 10, rect.y + 60 + idx * 20))
+        fallback = spectator_data.get("fallback_message")
+        if isinstance(fallback, str):
+            screen.blit(self.small_font.render(fallback[:46], True, (215, 215, 215)), (rect.x + 10, rect.y + 102))
+
+    def _draw_spectator_dashboard(
+        self,
+        screen,
+        state: GameState,
+        active_player: int | None,
+        panel_x: int,
+        height: int,
+        bottom_h: int,
+    ) -> dict[DevelopmentCardType, object]:
+        bar_y = height - bottom_h
+        self.pg.draw.rect(screen, (34, 34, 40), (0, bar_y, panel_x, bottom_h))
+        self.pg.draw.line(screen, (70, 70, 75), (0, bar_y), (panel_x, bar_y), 1)
+        players = sorted(state.players)
+        if not players:
+            return {}
+        cols = 4
+        rows = 2
+        left_pad = 10
+        top_pad = 10
+        row_gap = 10
+        card_gap = 6
+        cell_w = max((panel_x - left_pad * 2 - (cols - 1) * card_gap) // cols, 70)
+        cell_h = max((bottom_h - top_pad * 2 - row_gap) // rows, 56)
+        resources = [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]
+        dev_types = [DevelopmentCardType.KNIGHT, DevelopmentCardType.ROAD_BUILDING, DevelopmentCardType.YEAR_OF_PLENTY, DevelopmentCardType.MONOPOLY, DevelopmentCardType.VICTORY_POINT]
+        for idx, player_id in enumerate(players[:4]):
+            base_col = 0 if idx in (0, 2) else 2
+            row = 0 if idx < 2 else 1
+            y = bar_y + top_pad + row * (cell_h + row_gap)
+            px = left_pad + base_col * (cell_w + card_gap)
+            dx = left_pad + (base_col + 1) * (cell_w + card_gap)
+            for x, title, bg in (
+                (px, f"P{player_id} Resources", (48, 48, 58)),
+                (dx, f"P{player_id} Dev", (44, 44, 54)),
+            ):
+                rect = self.pg.Rect(x, y, cell_w, cell_h)
+                border = self._player_color(player_id) if player_id == active_player else (84, 84, 98)
+                self.pg.draw.rect(screen, bg, rect, border_radius=6)
+                self.pg.draw.rect(screen, border, rect, width=3 if player_id == active_player else 1, border_radius=6)
+                screen.blit(self.small_font.render(title, True, (230, 230, 236)), (rect.x + 4, rect.y + 4))
+            player = state.players[player_id]
+            row_y = y + 22
+            for card_idx, resource in enumerate(resources):
+                card_x = px + 3 + card_idx * ((cell_w - 10) // 5)
+                amount = player.resources.get(resource, 0)
+                self._draw_resource_card(screen, card_x, row_y, 18, 28, resource, amount, compact=True)
+            for card_idx, card_type in enumerate(dev_types):
+                card_x = dx + 3 + card_idx * ((cell_w - 10) // 5)
+                amount = player.dev_cards.get(card_type, 0)
+                self.pg.draw.rect(screen, (78, 88, 112), (card_x, row_y, 18, 28), border_radius=3)
+                if amount > 0:
+                    screen.blit(self.small_font.render(str(amount), True, (245, 245, 245)), (card_x + 4, row_y + 7))
+        return {}
 
     def _draw_triangle_icon(self, screen, rect, *, direction: str, color: tuple[int, int, int]) -> None:
         cx, cy = rect.centerx, rect.centery

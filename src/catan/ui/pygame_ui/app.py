@@ -26,8 +26,11 @@ from catan.core.models.action import (
     PlayMonopolyCard,
     PlayRoadBuildingCard,
     PlayYearOfPlentyCard,
+    MoveRobber,
+    PlaceSetupRoad,
+    PlaceSetupSettlement,
 )
-from catan.core.models.enums import DevelopmentCardType, PlayerTradePhase, ResourceType, TurnStep
+from catan.core.models.enums import DevelopmentCardType, PlayerTradePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 from catan.runners.game_setup import (
     AppScreen,
@@ -275,6 +278,10 @@ class PygameApp:
         settings_menu_open = False
         settings_delay_input = self._format_bot_delay_input(self._current_bot_delay_seconds(controllers))
         settings_delay_error: str | None = None
+        spectator_mode = self._is_spectator_mode(state, controllers)
+        spectator_speed = 1.0
+        base_bot_delay = self._current_bot_delay_seconds(controllers)
+        spectator_decision_ui = {"fallback_message": "Waiting for bot decision..."}
         self.return_to_main_menu = False
 
         running = True
@@ -365,6 +372,8 @@ class PygameApp:
                 dev_card_ui=dev_card_ui,
                 event_log_offset=event_log_offset,
                 hand_view_player=hand_view_player,
+                spectator_mode=spectator_mode,
+                spectator_data={**spectator_decision_ui, "speed": spectator_speed},
             )
             settings_ui = self._draw_settings_ui(
                 screen,
@@ -393,6 +402,14 @@ class PygameApp:
                     event_log_offset = max(event_log_offset - 1, 0)
                     continue
                 if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                    if spectator_mode:
+                        selected_speed = self._match_speed_button(event.pos, drawn.speed_button_rects)
+                        if selected_speed is not None:
+                            spectator_speed = selected_speed
+                            if selected_speed > 0:
+                                self._apply_bot_delay(controllers, base_bot_delay / selected_speed)
+                            event_log.append(f"[{action_counter:03d}] spectator speed {'pause' if selected_speed == 0 else f'{int(selected_speed)}x'}")
+                            continue
                     settings_click = self._handle_settings_click(event.pos, settings_ui, settings_menu_open)
                     if settings_click == "toggle":
                         settings_menu_open = not settings_menu_open
@@ -447,13 +464,13 @@ class PygameApp:
                     if discard_ui is not None:
                         discard_action = self._handle_discard_overlay_click(event.pos, discard_ui, state, active_player, discard_selection)
                         if discard_action is not None:
-                            selected_action_text = str(discard_action)
+                            selected_action_text = self._action_label(discard_action, state) if spectator_mode else str(discard_action)
                             active_controller.submit_action_intent(discard_action)
                         continue
                     if dev_card_ui is not None:
                         dev_flow_action = self._handle_dev_card_overlay_click(event.pos, dev_card_ui, active_player, legal, year_of_plenty_selected)
                         if dev_flow_action is not None:
-                            selected_action_text = str(dev_flow_action)
+                            selected_action_text = self._action_label(dev_flow_action, state) if spectator_mode else str(dev_flow_action)
                             active_controller.submit_action_intent(dev_flow_action)
                             if isinstance(dev_flow_action, ChooseYearOfPlentyResources):
                                 year_of_plenty_selected = {r: 0 for r in ResourceType}
@@ -483,12 +500,12 @@ class PygameApp:
                                 trade_draft_requested = {r: 0 for r in ResourceType}
                                 selected_action_text = "Trade draft cancelled"
                             continue
-                        selected_action_text = str(clicked_action)
+                        selected_action_text = self._action_label(clicked_action, state) if spectator_mode else str(clicked_action)
                         active_controller.submit_action_intent(clicked_action)
                         continue
                     dev_click_action = self._dev_card_click_action(event.pos, drawn.dev_card_rects, legal)
                     if dev_click_action is not None:
-                        selected_action_text = str(dev_click_action)
+                        selected_action_text = self._action_label(dev_click_action, state) if spectator_mode else str(dev_click_action)
                         active_controller.submit_action_intent(dev_click_action)
                         continue
                     if trade_window_open and trade_ui is not None:
@@ -502,7 +519,7 @@ class PygameApp:
                                     trade_draft_offered = {r: 0 for r in ResourceType}
                                     trade_draft_requested = {r: 0 for r in ResourceType}
                                 continue
-                            selected_action_text = str(trade_action)
+                            selected_action_text = self._action_label(trade_action, state) if spectator_mode else str(trade_action)
                             active_controller.submit_action_intent(trade_action)
                             trade_window_open = False
                             trade_draft_offered = {r: 0 for r in ResourceType}
@@ -511,14 +528,14 @@ class PygameApp:
                     if state.player_trade is not None and trade_ui is not None:
                         player_trade_action = self._handle_player_trade_overlay_click(event.pos, trade_ui, state, active_player)
                         if player_trade_action is not None:
-                            selected_action_text = str(player_trade_action)
+                            selected_action_text = self._action_label(player_trade_action, state) if spectator_mode else str(player_trade_action)
                             active_controller.submit_action_intent(player_trade_action)
                             continue
 
                 if is_human and state.turn and state.turn.step == TurnStep.DISCARD:
                     discard_action = self._handle_discard_event(event, state, active_player, discard_selection)
                     if discard_action is not None:
-                        selected_action_text = str(discard_action)
+                        selected_action_text = self._action_label(discard_action, state) if spectator_mode else str(discard_action)
                         active_controller.submit_action_intent(discard_action)
                     continue
                 if is_human and state.turn and state.turn.step == TurnStep.ACTIONS:
@@ -530,7 +547,7 @@ class PygameApp:
                         bank_trade_request,
                     )
                     if bank_trade_action is not None:
-                        selected_action_text = str(bank_trade_action)
+                        selected_action_text = self._action_label(bank_trade_action, state) if spectator_mode else str(bank_trade_action)
                         active_controller.submit_action_intent(bank_trade_action)
                         continue
 
@@ -548,7 +565,7 @@ class PygameApp:
                 if mapped.action is not None:
                     if not self._is_board_action_allowed(mapped.action, build_mode):
                         continue
-                    selected_action_text = str(mapped.action)
+                    selected_action_text = self._action_label(mapped.action, state) if spectator_mode else str(mapped.action)
                     active_controller.submit_action_intent(mapped.action)
                     if isinstance(mapped.action, (BuildRoad, BuildSettlement, BuildCity)):
                         build_mode = None
@@ -556,11 +573,20 @@ class PygameApp:
                         event_log.append(f"[{action_counter:03d}] P{active_player} {mapped.status}")
 
             if active_player is not None and active_player in controllers:
+                if spectator_mode and spectator_speed == 0 and not isinstance(controllers[active_player], HumanController):
+                    self.pg.display.flip()
+                    clock.tick(30)
+                    continue
                 before = state
                 state = self.runner.tick(state, controllers[active_player], active_player)
+                if spectator_mode and not isinstance(controllers[active_player], HumanController):
+                    spectator_decision_ui = self._spectator_decision_ui(controllers[active_player], before)
                 if state != before:
                     action_counter += 1
-                    last_applied_action = selected_action_text or "action"
+                    if spectator_mode and not isinstance(controllers[active_player], HumanController):
+                        last_applied_action = spectator_decision_ui.get("chosen_line") or selected_action_text or "action"
+                    else:
+                        last_applied_action = selected_action_text or "action"
                     for line in self._describe_transition(before, state, last_applied_action):
                         event_log.append(f"[{action_counter:03d}] {line}")
                     selected_action_text = None
@@ -582,6 +608,77 @@ class PygameApp:
 
         self.pg.quit()
         return state
+
+    def _is_spectator_mode(self, state: GameState, controllers: Mapping[int, Controller]) -> bool:
+        return len(state.players) == 4 and all(not isinstance(controllers.get(pid), HumanController) for pid in state.players)
+
+    def _match_speed_button(self, pos: tuple[int, int], speed_rects: dict[float, object]) -> float | None:
+        for speed, rect in speed_rects.items():
+            if rect.collidepoint(pos):
+                return float(speed)
+        return None
+
+    def _spectator_decision_ui(self, controller: Controller, state: GameState) -> dict[str, object]:
+        getter = getattr(controller, "get_last_decision", None)
+        if not callable(getter):
+            return {"fallback_message": "No bot explanation data available"}
+        payload = getter()
+        if not isinstance(payload, dict):
+            return {"fallback_message": "No bot explanation data available"}
+        chosen = payload.get("chosen_action")
+        chosen_line = self._action_label(chosen, state) if chosen is not None else None
+        if payload.get("kind") == "heuristic":
+            formatted: list[str] = []
+            for action, score in payload.get("top_candidates", [])[:2]:
+                formatted.append(f"{self._action_label(action, state):<24} {score:+.2f}")
+            return {"chosen_line": chosen_line, "candidate_lines": formatted}
+        return {
+            "chosen_line": chosen_line,
+            "fallback_message": str(payload.get("message", f"Random choice from {payload.get('legal_action_count', '?')} legal actions")),
+        }
+
+    def _action_label(self, action: object, state: GameState) -> str:
+        if isinstance(action, (BuildSettlement, PlaceSetupSettlement)):
+            return f"Settlement {self._node_token_label(state, action.node_id)}"
+        if isinstance(action, (BuildRoad, PlaceSetupRoad)):
+            return f"Road toward {self._road_toward_label(state, action.edge_id)}"
+        if isinstance(action, MoveRobber):
+            return f"Robber → {self._robber_tile_label(state, action.tile_id)}"
+        return str(action)
+
+    def _node_token_label(self, state: GameState, node_id: int) -> str:
+        tile_ids = state.board.node_to_adjacent_tiles.get(node_id, ())
+        token_by_tile = {tile.id: tile.number_token for tile in state.board.tiles}
+        tokens = [token_by_tile.get(tile_id) for tile_id in tile_ids if token_by_tile.get(tile_id) is not None]
+        if not tokens:
+            return "coast"
+        return "-".join(str(token) for token in tokens)
+
+    def _road_toward_label(self, state: GameState, edge_id: int) -> str:
+        node_a, node_b = state.board.edge_to_adjacent_nodes.get(edge_id, (None, None))
+        if node_a is None or node_b is None:
+            return "unknown"
+        label_a = self._node_token_label(state, node_a)
+        label_b = self._node_token_label(state, node_b)
+        return label_a if len(label_a) >= len(label_b) else label_b
+
+    def _robber_tile_label(self, state: GameState, tile_id: int) -> str:
+        tile = next((tile for tile in state.board.tiles if tile.id == tile_id), None)
+        if tile is None:
+            return "unknown"
+        number = tile.number_token if tile.number_token is not None else "Desert"
+        return f"{number} ({self._terrain_resource(tile.terrain)})"
+
+    def _terrain_resource(self, terrain: TerrainType) -> str:
+        mapping = {
+            TerrainType.HILLS: "Brick",
+            TerrainType.FOREST: "Lumber",
+            TerrainType.PASTURE: "Sheep",
+            TerrainType.FIELDS: "Wheat",
+            TerrainType.MOUNTAINS: "Ore",
+            TerrainType.DESERT: "Desert",
+        }
+        return mapping.get(terrain, terrain.name.title())
 
     def _draw_settings_ui(
         self,
