@@ -307,10 +307,18 @@ class PygameApp:
                     new_from_selected_rect = self.pg.Rect(details_x, height - 120, min(360, details_width), 42)
                     save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
                     detail_panel_rect = self.pg.Rect(details_x, 96, details_width, height - 226)
-                    editable_fields = ["__name__", "__description__", *new_bot_param_keys]
-                    visible_row_height = 42
-                    max_rows = max(1, detail_panel_rect.height // visible_row_height)
-                    max_detail_scroll = max(0, (len(editable_fields) - max_rows) * visible_row_height)
+                    selected_definition = get_bot_definition(selected_lab_bot_id) if selected_lab_bot_id else None
+                    if create_form_open:
+                        detail_row_height = 42
+                        detail_row_count = len(["__name__", "__description__", *new_bot_param_keys])
+                    elif selected_definition is not None:
+                        detail_row_height = 30
+                        detail_row_count = 4 + len(selected_definition.parameters)
+                    else:
+                        detail_row_height = 30
+                        detail_row_count = 0
+                    max_rows = max(1, detail_panel_rect.height // detail_row_height)
+                    max_detail_scroll = max(0, (detail_row_count - max_rows) * detail_row_height)
                     bot_lab_scroll_offset = max(0, min(bot_lab_scroll_offset, max_detail_scroll))
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                         if back_rect.collidepoint(event.pos):
@@ -322,6 +330,7 @@ class PygameApp:
                             row = (event.pos[1] - list_rect.y) // 38
                             if 0 <= row < len(bot_definitions):
                                 selected_lab_bot_id = bot_definitions[row].bot_id
+                                bot_lab_scroll_offset = 0
                             continue
                         if new_from_selected_rect.collidepoint(event.pos) and selected_lab_bot_id is not None:
                             base = get_bot_definition(selected_lab_bot_id)
@@ -336,7 +345,8 @@ class PygameApp:
                                 bot_lab_error = None
                             continue
                         if create_form_open and detail_panel_rect.collidepoint(event.pos):
-                            clicked_row = (event.pos[1] - detail_panel_rect.y + bot_lab_scroll_offset) // visible_row_height
+                            editable_fields = ["__name__", "__description__", *new_bot_param_keys]
+                            clicked_row = (event.pos[1] - detail_panel_rect.y + bot_lab_scroll_offset) // 42
                             if 0 <= clicked_row < len(editable_fields):
                                 selected_new_bot_field_idx = int(clicked_row)
                             continue
@@ -360,11 +370,13 @@ class PygameApp:
                                 bot_lab_error = None
                             except ValueError as exc:
                                 bot_lab_error = str(exc)
-                    if create_form_open and event.type == self.pg.MOUSEWHEEL:
+                    if event.type == self.pg.MOUSEWHEEL:
                         mouse_pos = self.pg.mouse.get_pos()
                         if detail_panel_rect.collidepoint(mouse_pos):
                             bot_lab_scroll_offset = max(0, min(max_detail_scroll, bot_lab_scroll_offset - event.y * 26))
                     if create_form_open and event.type == self.pg.KEYDOWN:
+                        editable_fields = ["__name__", "__description__", *new_bot_param_keys]
+                        visible_row_height = 42
                         if event.key in (self.pg.K_TAB, self.pg.K_DOWN):
                             selected_new_bot_field_idx = min(len(editable_fields) - 1, selected_new_bot_field_idx + 1)
                             target_top = selected_new_bot_field_idx * visible_row_height
@@ -400,6 +412,11 @@ class PygameApp:
                                 new_bot_parameters[selected_field] = new_bot_parameters[selected_field][:-1]
                             elif event.unicode and event.unicode.isprintable():
                                 new_bot_parameters[selected_field] += event.unicode
+                    elif (not create_form_open) and event.type == self.pg.KEYDOWN and selected_definition is not None:
+                        if event.key in (self.pg.K_PAGEDOWN, self.pg.K_DOWN):
+                            bot_lab_scroll_offset = min(max_detail_scroll, bot_lab_scroll_offset + detail_panel_rect.height // 3)
+                        elif event.key in (self.pg.K_PAGEUP, self.pg.K_UP):
+                            bot_lab_scroll_offset = max(0, bot_lab_scroll_offset - detail_panel_rect.height // 3)
 
             screen.fill((20, 20, 28))
             if flow_state.screen == AppScreen.MAIN_MENU:
@@ -540,9 +557,11 @@ class PygameApp:
                                 f"Description: {selected_definition.description or '(none)'}",
                                 "Parameters:",
                             ] + [f"  - {key}: {value}" for key, value in selected_definition.parameters.items()]
+                            instruction = "Mouse wheel / ↑↓ / PageUp PageDown to scroll."
+                            screen.blit(small_font.render(instruction, True, (190, 210, 230)), (details_x + 10, 68))
                             clip_before = screen.get_clip()
                             screen.set_clip(detail_panel_rect)
-                            row_y = detail_panel_rect.y + 10
+                            row_y = detail_panel_rect.y + 10 - bot_lab_scroll_offset
                             for line in details:
                                 screen.blit(small_font.render(line, True, (220, 220, 235)), (details_x + 10, row_y))
                                 row_y += 30
