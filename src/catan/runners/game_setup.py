@@ -12,7 +12,7 @@ class AppScreen(str, Enum):
 
 class ControllerType(str, Enum):
     HUMAN = "human"
-    BOT_PLACEHOLDER = "bot_placeholder"
+    RANDOM_BOT = "random_bot"
 
 
 @dataclass(frozen=True)
