@@ -15,5 +15,7 @@ def create_controllers(config: GameLaunchConfig, *, enable_bot_delay: bool = Tru
             controllers[slot.player_id] = build_bot_controller_from_definition(
                 slot.controller_key,
                 enable_bot_delay=enable_bot_delay,
+                seed=config.seed + slot.player_id,
+                delay_seconds=config.bot_delay_seconds,
             )
     return controllers

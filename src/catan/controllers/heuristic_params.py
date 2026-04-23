@@ -6,6 +6,8 @@ from typing import Mapping
 from catan.core.models.enums import ResourceType
 from catan.runners.game_setup import ControllerType
 
+_GLOBAL_GAME_PARAMETER_KEYS = frozenset({"seed", "delay_seconds"})
+
 
 @dataclass(frozen=True)
 class HeuristicScoringParams:
@@ -75,7 +77,7 @@ class HeuristicScoringParams:
 
 def default_family_parameters(controller_type: ControllerType) -> dict[str, float | int | str | bool]:
     if controller_type == ControllerType.HEURISTIC_BOT:
-        return {"seed": "", "delay_seconds": 1.2, **HeuristicScoringParams().as_dict()}
+        return {**HeuristicScoringParams().as_dict()}
     if controller_type == ControllerType.HEURISTIC_V1_BASELINE:
         params = HeuristicScoringParams(
             grain_value=1.2,
@@ -108,8 +110,8 @@ def default_family_parameters(controller_type: ControllerType) -> dict[str, floa
             bank_trade_direct_build_bonus=34.0,
             trade_scarcity_penalty=0.6,
         )
-        return {"seed": "", "delay_seconds": 1.2, **params.as_dict()}
-    return {"seed": "", "delay_seconds": 1.2}
+        return {**params.as_dict()}
+    return {}
 
 
 def merge_with_family_defaults(
@@ -118,6 +120,8 @@ def merge_with_family_defaults(
 ) -> dict[str, float | int | str | bool]:
     merged = default_family_parameters(controller_type)
     for key, value in overrides.items():
+        if key in _GLOBAL_GAME_PARAMETER_KEYS:
+            continue
         if key in merged:
             merged[key] = _coerce_like(merged[key], value)
         else:

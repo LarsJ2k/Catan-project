@@ -34,7 +34,7 @@ def test_custom_bot_persistence_and_name_validation(tmp_path: Path) -> None:
         name="My Random Variant",
         base_bot_id="random_bot",
         description="custom",
-        parameters={"seed": "", "delay_seconds": 0.4},
+        parameters={},
         storage_path=tmp_path / "bots.json",
     )
     loaded = list_bot_definitions(storage_path=tmp_path / "bots.json")
@@ -45,7 +45,7 @@ def test_custom_bot_persistence_and_name_validation(tmp_path: Path) -> None:
             name="My Random Variant",
             base_bot_id="random_bot",
             description="dup",
-            parameters={"seed": "", "delay_seconds": 0.5},
+            parameters={},
             storage_path=tmp_path / "bots.json",
         )
         assert False, "Expected duplicate-name validation to fail."
@@ -58,13 +58,13 @@ def test_heuristic_defaults_and_partial_overrides_merge(tmp_path: Path) -> None:
         name="Heuristic Partial",
         base_bot_id="heuristic_bot",
         description="partial",
-        parameters={"seed": "", "delay_seconds": 0.3, "road_to_target_weight": 0.01},
+        parameters={"road_to_target_weight": 0.01},
         storage_path=tmp_path / "bots.json",
     )
     created = next(bot for bot in list_bot_definitions(storage_path=tmp_path / "bots.json") if bot.display_name == "Heuristic Partial")
     assert created.parameters["road_to_target_weight"] == 0.01
     assert "settlement_base_score" in created.parameters
-    assert created.parameters["delay_seconds"] == 0.3
+    assert "delay_seconds" not in created.parameters
 
 
 def test_backward_compat_old_partial_custom_definition_loads(tmp_path: Path) -> None:
@@ -75,7 +75,8 @@ def test_backward_compat_old_partial_custom_definition_loads(tmp_path: Path) -> 
     )
     loaded = list_bot_definitions(storage_path=path)
     legacy = next(bot for bot in loaded if bot.bot_id == "legacy_h")
-    assert legacy.parameters["seed"] == "7"
+    assert "seed" not in legacy.parameters
+    assert "delay_seconds" not in legacy.parameters
     assert "brick_value" in legacy.parameters
     controller = build_bot_controller_from_definition("legacy_h", enable_bot_delay=False, storage_path=path)
     assert isinstance(controller, HeuristicBotController)

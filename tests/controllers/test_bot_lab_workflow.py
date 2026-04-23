@@ -8,7 +8,6 @@ def test_new_bot_copy_starts_from_selected_without_mutating_selected(tmp_path) -
     base = get_bot_definition("random_bot")
     assert base is not None
     copied_params = dict(base.parameters)
-    copied_params["delay_seconds"] = 0.25
 
     created = create_custom_bot_definition(
         name="Random Fast",
@@ -19,8 +18,8 @@ def test_new_bot_copy_starts_from_selected_without_mutating_selected(tmp_path) -
     )
 
     assert created.base_controller_type == base.base_controller_type
-    assert created.parameters["delay_seconds"] == 0.25
-    assert base.parameters["delay_seconds"] == 1.2
+    assert "delay_seconds" not in created.parameters
+    assert "delay_seconds" not in base.parameters
 
 
 def test_empty_name_rejected(tmp_path) -> None:
@@ -49,7 +48,9 @@ def test_setup_and_tournament_see_saved_custom_bots(tmp_path, monkeypatch) -> No
         storage_path=tmp_path / "custom_bots.json",
     )
 
-    assert any(bot.display_name == "Heuristic Seeded" for bot in list_bot_definitions(storage_path=tmp_path / "custom_bots.json"))
+    created = next(bot for bot in list_bot_definitions(storage_path=tmp_path / "custom_bots.json") if bot.display_name == "Heuristic Seeded")
+    assert "seed" not in created.parameters
+    assert "delay_seconds" not in created.parameters
     options = available_controller_types()
     assert ControllerType.HUMAN.value in options
     builtin_ids = {ControllerType.HUMAN.value, "random_bot", "heuristic_bot", "heuristic_v1_baseline"}
