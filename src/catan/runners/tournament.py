@@ -7,9 +7,11 @@ import csv
 import json
 from pathlib import Path
 from statistics import mean
+from typing import Callable
 
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
+from catan.core.models.enums import DevelopmentCardType
 from catan.core.models.state import InitialGameConfig
 from catan.runners.game_setup import GameLaunchConfig, PlayerSlotConfig
 from catan.runners.headless_runner import HeadlessRunner
@@ -114,8 +116,19 @@ class HeadlessTournamentRunner:
     def __init__(self) -> None:
         self._game_runner = HeadlessRunner()
 
-    def run(self, config: TournamentConfig) -> TournamentResult:
-        results = [self._play_match(match) for match in generate_match_configs(config)]
+    def run(
+        self,
+        config: TournamentConfig,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> TournamentResult:
+        matches = generate_match_configs(config)
+        if progress_callback is not None:
+            progress_callback(0, len(matches))
+        results: list[MatchResult] = []
+        for idx, match in enumerate(matches, start=1):
+            results.append(self._play_match(match))
+            if progress_callback is not None:
+                progress_callback(idx, len(matches))
         return TournamentResult(config=config, matches=tuple(results), aggregates=aggregate_results(tuple(results)))
 
     def _play_match(self, match: MatchConfig) -> MatchResult:
@@ -126,8 +139,8 @@ class HeadlessTournamentRunner:
             _to_launch_config(match.seat_order, match.seed),
             enable_bot_delay=False,
         )
-        final_state, step_count = self._game_runner.play_until_terminal_with_steps(state, controllers)
-        seat_vps = tuple(final_state.players[idx + 1].victory_points for idx in range(4))
+        final_state, step_count = self._game_runner.play_until_terminal_with_steps(state, controllers, max_steps=100_000)
+        seat_vps = tuple(_total_victory_points(final_state, idx + 1) for idx in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
         winner_bot: str | None = None
@@ -272,3 +285,14 @@ def _to_launch_config(seat_order: tuple[str, ...], seed: int) -> GameLaunchConfi
         player_slots=tuple(PlayerSlotConfig(player_id=idx + 1, controller_key=controller) for idx, controller in enumerate(seat_order)),
         seed=seed,
     )
+
+
+def _total_victory_points(state, player_id: int) -> int:
+    total = state.players[player_id].victory_points
+    if state.largest_army_holder == player_id:
+        total += 2
+    if state.longest_road_holder == player_id:
+        total += 2
+    # Hidden VP dev cards count toward win condition and tournament ranking.
+    total += state.players[player_id].dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
+    return total

@@ -117,6 +117,47 @@ def test_headless_tournament_runner_executes_without_ui() -> None:
     assert result.aggregates[ControllerType.HEURISTIC_BOT.value].games_played == 2
 
 
+def test_winning_match_reports_total_vp_for_winner() -> None:
+    config = TournamentConfig(
+        selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
+        fixed_lineup=(
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+        ),
+        format=TournamentFormat.FIXED_LINEUP_BATCH,
+        seed_blocks=1,
+        seat_rotation_enabled=False,
+    )
+
+    result = HeadlessTournamentRunner().run(config)
+
+    winner = result.matches[0].winner
+    assert winner is not None
+    assert max(result.matches[0].final_vp_by_seat) >= 10
+
+
+def test_tournament_progress_callback_receives_match_progress_updates() -> None:
+    config = TournamentConfig(
+        selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
+        fixed_lineup=(
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+        ),
+        format=TournamentFormat.FIXED_LINEUP_BATCH,
+        seed_blocks=1,
+        seat_rotation_enabled=False,
+    )
+    updates: list[tuple[int, int]] = []
+
+    HeadlessTournamentRunner().run(config, progress_callback=lambda complete, total: updates.append((complete, total)))
+
+    assert updates == [(0, 1), (1, 1)]
+
+
 def test_aggregation_correctness() -> None:
     matches = (
         MatchResult(
