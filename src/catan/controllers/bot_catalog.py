@@ -9,6 +9,7 @@ from typing import Callable, Mapping
 from catan.controllers.base import Controller
 from catan.controllers.random_bot_controller import RandomBotController
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
+from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.runners.game_setup import ControllerType
 
 
@@ -38,6 +39,10 @@ def _heuristic_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicBotController(enable_delay=enable_bot_delay)
 
 
+def _heuristic_v1_baseline_factory(enable_bot_delay: bool) -> Controller:
+    return HeuristicV1BaselineBotController(enable_delay=enable_bot_delay)
+
+
 _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
     ControllerSpec(
         controller_type=ControllerType.RANDOM_BOT,
@@ -50,6 +55,12 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
         label="Heuristic Bot",
         is_bot=True,
         factory=_heuristic_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.HEURISTIC_V1_BASELINE,
+        label="Heuristic v1 Baseline",
+        is_bot=True,
+        factory=_heuristic_v1_baseline_factory,
     ),
 )
 
@@ -71,6 +82,14 @@ _BUILTIN_BOTS: tuple[BotDefinition, ...] = (
         display_name="Heuristic Bot",
         base_controller_type=ControllerType.HEURISTIC_BOT,
         description="Greedy bot that scores legal actions.",
+        parameters={"seed": "", "delay_seconds": 1.2},
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_v1_baseline",
+        display_name="Heuristic v1 Baseline",
+        base_controller_type=ControllerType.HEURISTIC_V1_BASELINE,
+        description="Stronger first-generation heuristic with road/robber/trade/dev scoring.",
         parameters={"seed": "", "delay_seconds": 1.2},
         is_builtin=True,
     ),
@@ -214,4 +233,6 @@ def build_bot_controller_from_definition(
         return RandomBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
     if definition.base_controller_type == ControllerType.HEURISTIC_BOT:
         return HeuristicBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
+    if definition.base_controller_type == ControllerType.HEURISTIC_V1_BASELINE:
+        return HeuristicV1BaselineBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
     raise ValueError(f"Unsupported bot base type: {definition.base_controller_type}")

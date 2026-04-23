@@ -16,6 +16,7 @@ class ControllerType(str, Enum):
     HUMAN = "human"
     RANDOM_BOT = "random_bot"
     HEURISTIC_BOT = "heuristic_bot"
+    HEURISTIC_V1_BASELINE = "heuristic_v1_baseline"
 
 
 def available_controller_types() -> tuple[str, ...]:
