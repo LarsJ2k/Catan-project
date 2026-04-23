@@ -131,7 +131,7 @@ class PygameRenderer:
         )
         width, height = screen.get_size()
         panel_width = max(int(width * 0.24), 320)
-        bottom_bar_height = max(int(height * (0.30 if spectator_mode else 0.18)), 130)
+        bottom_bar_height = max(int(height * (0.24 if spectator_mode else 0.18)), 118)
         panel_x = width - panel_width
 
         self.pg.draw.rect(screen, (28, 28, 32), (0, 0, width, height))
@@ -354,6 +354,7 @@ class PygameRenderer:
         screen.blit(self.font.render("Players", True, (238, 238, 238)), (panel_x + 10, y))
         y += 24
         reveal_current_hidden_vp = False
+        reveal_all_hidden_vp = spectator_mode
         if active_player is not None:
             reveal_current_hidden_vp = any(getattr(action, "player_id", None) == active_player for action in legal_actions)
         for pid in sorted(state.players):
@@ -367,6 +368,7 @@ class PygameRenderer:
                 state,
                 player_id=pid,
                 reveal_current_hidden_vp=reveal_current_hidden_vp,
+                reveal_all_hidden_vp=reveal_all_hidden_vp,
             )
             screen.blit(self.small_font.render(vp_text, True, (220, 220, 220)), (row.x + 46, row.y + 4))
             screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.x + 112, row.y + 4))
@@ -466,14 +468,18 @@ class PygameRenderer:
                 card_x = px + section_padding + card_idx * (card_width + card_gap)
                 amount = player.resources.get(resource, 0)
                 self._draw_resource_card(screen, card_x, row_y, card_width, card_height, resource, amount, compact=True)
-            visible_dev_types = [card_type for card_type in dev_types if player.dev_cards.get(card_type, 0) > 0]
-            dev_count = max(len(visible_dev_types), 1)
-            dev_card_width = max((cell_w - section_padding * 2 - card_gap * (dev_count - 1)) // dev_count, 20)
-            for card_idx, card_type in enumerate(visible_dev_types):
+            dev_card_width = max((cell_w - section_padding * 2 - card_gap * 4) // 5, 20)
+            for card_idx, card_type in enumerate(dev_types):
                 card_x = dx + section_padding + card_idx * (dev_card_width + card_gap)
                 amount = player.dev_cards.get(card_type, 0)
                 self.pg.draw.rect(screen, (78, 88, 112), (card_x, row_y, dev_card_width, card_height), border_radius=4)
-                screen.blit(self.small_font.render(str(amount), True, (245, 245, 245)), (card_x + 6, row_y + card_height // 2 - 6))
+                label = self._dev_card_name(card_type)
+                label_surface = self.small_font.render(label, True, (235, 235, 240))
+                label_x = card_x + max((dev_card_width - label_surface.get_width()) // 2, 2)
+                screen.blit(label_surface, (label_x, row_y + 6))
+                amount_surface = self.small_font.render(str(amount), True, (245, 245, 245))
+                amount_x = card_x + max((dev_card_width - amount_surface.get_width()) // 2, 2)
+                screen.blit(amount_surface, (amount_x, row_y + card_height // 2))
         return {}
 
     def _draw_triangle_icon(self, screen, rect, *, direction: str, color: tuple[int, int, int]) -> None:
@@ -1026,7 +1032,14 @@ class PygameRenderer:
         }
         return names[card_type]
 
-    def _scoreboard_vp_text(self, state: GameState, player_id: int, *, reveal_current_hidden_vp: bool = True) -> str:
+    def _scoreboard_vp_text(
+        self,
+        state: GameState,
+        player_id: int,
+        *,
+        reveal_current_hidden_vp: bool = True,
+        reveal_all_hidden_vp: bool = False,
+    ) -> str:
         player = state.players[player_id]
         award_vp = 0
         if state.largest_army_holder == player_id:
@@ -1034,8 +1047,10 @@ class PygameRenderer:
         if state.longest_road_holder == player_id:
             award_vp += 2
         public_vp = player.victory_points + award_vp
-        if reveal_current_hidden_vp and state.turn is not None and state.turn.current_player == player_id:
+        should_reveal_hidden = reveal_all_hidden_vp or (
+            reveal_current_hidden_vp and state.turn is not None and state.turn.current_player == player_id
+        )
+        if should_reveal_hidden:
             hidden_vp = player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
-            if hidden_vp > 0:
-                return f"VP {public_vp}({public_vp + hidden_vp})"
+            return f"VP {public_vp}({public_vp + hidden_vp})"
         return f"VP {public_vp}"

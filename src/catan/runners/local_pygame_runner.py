@@ -12,6 +12,8 @@ class LocalPygameRunner:
 
     def tick(self, state: GameState, controller: Controller, player_id: int) -> GameState:
         legal_actions = get_legal_actions(state, player_id)
+        if not legal_actions:
+            return state
         observation = get_observation(state, player_id, debug=not isinstance(controller, HumanController))
         try:
             action = controller.choose_action(observation, legal_actions)
