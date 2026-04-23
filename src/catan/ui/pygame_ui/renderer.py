@@ -404,15 +404,29 @@ class PygameRenderer:
                 panel_x=panel_x,
                 panel_width=panel_width,
                 height=height,
+                top_y=y + 8,
                 spectator_data=spectator_data or {},
             )
         else:
             self._draw_sidebar_buttons(screen, state, legal_actions, can_roll, can_end, panel_x, panel_width, height, action_button_rects)
         return roll_rect, end_rect, action_button_rects, up_rect, down_rect, speed_button_rects
 
-    def _draw_decision_panel(self, screen, *, panel_x: int, panel_width: int, height: int, spectator_data: dict[str, object]) -> None:
-        panel_h = 280
-        rect = self.pg.Rect(panel_x + 8, height - panel_h - 8, panel_width - 16, panel_h)
+    def _draw_decision_panel(
+        self,
+        screen,
+        *,
+        panel_x: int,
+        panel_width: int,
+        height: int,
+        top_y: int,
+        spectator_data: dict[str, object],
+    ) -> None:
+        max_panel_h = 280
+        min_panel_h = 140
+        panel_bottom_margin = 8
+        available_h = max(height - top_y - panel_bottom_margin, min_panel_h)
+        panel_h = min(max_panel_h, available_h)
+        rect = self.pg.Rect(panel_x + 8, top_y, panel_width - 16, panel_h)
         self.pg.draw.rect(screen, (46, 46, 54), rect, border_radius=8)
         self.pg.draw.rect(screen, (78, 78, 88), rect, width=1, border_radius=8)
         screen.blit(self.font.render("Bot decisions", True, (238, 238, 238)), (rect.x + 10, rect.y + 8))
