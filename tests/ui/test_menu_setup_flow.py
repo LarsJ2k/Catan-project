@@ -4,6 +4,7 @@ from catan.controllers.random_bot_controller import RandomBotController
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
+from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
 from catan.controllers.human_controller import HumanController
 from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState, TournamentSetupState, available_controller_types
 from catan.runners.tournament import TournamentFormat
@@ -119,6 +120,7 @@ def test_available_controller_types_keep_human_first() -> None:
     assert ControllerType.HEURISTIC_V1_BASELINE.value in controller_types
     assert ControllerType.HEURISTIC_V1_FIXED.value in controller_types
     assert ControllerType.HEURISTIC_V1_1.value in controller_types
+    assert ControllerType.HEURISTIC_V2_POSITIONAL.value in controller_types
 
 
 def test_launch_config_can_create_new_v1_baseline_bot_controller() -> None:
@@ -141,6 +143,17 @@ def test_launch_config_can_create_new_v1_1_bot_controller() -> None:
 
     controllers = create_controllers(config)
     assert isinstance(controllers[1], HeuristicV1_1BotController)
+
+
+def test_launch_config_can_create_new_v2_positional_bot_controller() -> None:
+    state = GameSetupState().go_to_setup()
+    state = state.with_selected_controller(ControllerType.HEURISTIC_V2_POSITIONAL.value).add_selected_player()
+    state = state.with_selected_controller(ControllerType.HUMAN.value).add_selected_player()
+    config = state.with_fixed_seed_text("23").to_launch_config()
+    assert config is not None
+
+    controllers = create_controllers(config)
+    assert isinstance(controllers[1], HeuristicV2PositionalBotController)
 
 
 def test_tournament_setup_requires_valid_selection() -> None:

@@ -62,6 +62,7 @@ def test_setup_and_tournament_see_saved_custom_bots(tmp_path, monkeypatch) -> No
         "heuristic_v1_baseline",
         "heuristic_v1_fixed",
         "heuristic_v1_1",
+        "heuristic_v2_positional",
     }
     assert any(option not in builtin_ids for option in options)
 

@@ -1174,12 +1174,25 @@ class PygameApp:
         if isinstance(top_candidates, list):
             formatted: list[str] = []
             for candidate in top_candidates[:3]:
-                if not isinstance(candidate, tuple) or len(candidate) != 2:
+                if isinstance(candidate, tuple) and len(candidate) == 2:
+                    action, score = candidate
+                    if not isinstance(score, (int, float)):
+                        continue
+                    formatted.append(f"{self._action_label(action, state):<24} {score:+.2f}")
                     continue
-                action, score = candidate
-                if not isinstance(score, (int, float)):
-                    continue
-                formatted.append(f"{self._action_label(action, state):<24} {score:+.2f}")
+                if isinstance(candidate, dict):
+                    action = candidate.get("action")
+                    combined = candidate.get("combined_score")
+                    action_score = candidate.get("action_score")
+                    position_score = candidate.get("position_score")
+                    if not isinstance(combined, (int, float)):
+                        continue
+                    if isinstance(action_score, (int, float)) and isinstance(position_score, (int, float)):
+                        formatted.append(
+                            f"{self._action_label(action, state):<24} total {combined:+.1f} (a {action_score:+.1f}, s {position_score:+.1f})"
+                        )
+                    else:
+                        formatted.append(f"{self._action_label(action, state):<24} {combined:+.2f}")
             if formatted:
                 return {"chosen_line": chosen_line, "candidate_lines": formatted}
         return {

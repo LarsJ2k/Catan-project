@@ -12,6 +12,7 @@ from catan.controllers.random_bot_controller import RandomBotController
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
+from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
 from catan.runners.game_setup import ControllerType
 
 
@@ -53,6 +54,10 @@ def _heuristic_v1_1_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicV1_1BotController(enable_delay=enable_bot_delay)
 
 
+def _heuristic_v2_positional_factory(enable_bot_delay: bool) -> Controller:
+    return HeuristicV2PositionalBotController(enable_delay=enable_bot_delay)
+
+
 _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
     ControllerSpec(
         controller_type=ControllerType.RANDOM_BOT,
@@ -83,6 +88,12 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
         label="Heuristic v1.1",
         is_bot=True,
         factory=_heuristic_v1_1_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.HEURISTIC_V2_POSITIONAL,
+        label="Heuristic v2 Positional",
+        is_bot=True,
+        factory=_heuristic_v2_positional_factory,
     ),
 )
 
@@ -129,6 +140,14 @@ _BUILTIN_BOTS: tuple[BotDefinition, ...] = (
         base_controller_type=ControllerType.HEURISTIC_V1_1,
         description="Greedy v1 refinement with settlement/city-aware road and dev discipline.",
         parameters=default_family_parameters(ControllerType.HEURISTIC_V1_1),
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_v2_positional",
+        display_name="Heuristic v2 Positional",
+        base_controller_type=ControllerType.HEURISTIC_V2_POSITIONAL,
+        description="Candidate-shortlist + simulated resulting-position evaluation.",
+        parameters=default_family_parameters(ControllerType.HEURISTIC_V2_POSITIONAL),
         is_builtin=True,
     ),
 )
@@ -314,6 +333,13 @@ def build_bot_controller_from_definition(
         )
     if definition.base_controller_type == ControllerType.HEURISTIC_V1_1:
         return HeuristicV1_1BotController(
+            seed=seed,
+            delay_seconds=delay_seconds,
+            enable_delay=enable_bot_delay,
+            heuristic_params=HeuristicScoringParams.from_mapping(parameters),
+        )
+    if definition.base_controller_type == ControllerType.HEURISTIC_V2_POSITIONAL:
+        return HeuristicV2PositionalBotController(
             seed=seed,
             delay_seconds=delay_seconds,
             enable_delay=enable_bot_delay,

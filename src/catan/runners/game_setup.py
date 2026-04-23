@@ -19,6 +19,7 @@ class ControllerType(str, Enum):
     HEURISTIC_V1_BASELINE = "heuristic_v1_baseline"
     HEURISTIC_V1_FIXED = "heuristic_v1_fixed"
     HEURISTIC_V1_1 = "heuristic_v1_1"
+    HEURISTIC_V2_POSITIONAL = "heuristic_v2_positional"
 
 
 def available_controller_types() -> tuple[str, ...]:
