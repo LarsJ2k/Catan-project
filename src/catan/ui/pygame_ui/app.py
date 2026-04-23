@@ -45,7 +45,6 @@ from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat,
 from catan.controllers.bot_catalog import (
     create_custom_bot_definition,
     delete_custom_bot_definition,
-    get_bot_definition,
     list_bot_definitions,
 )
 from catan.controllers.heuristic_params import merge_with_family_defaults
@@ -53,6 +52,10 @@ from catan.controllers.heuristic_params import merge_with_family_defaults
 from .input_mapper import HoverTarget, PygameInputMapper
 from .layout import build_circular_layout
 from .renderer import PygameRenderer
+
+
+def _bot_lab_key(is_builtin: bool, bot_id: str) -> str:
+    return f"{'builtin' if is_builtin else 'custom'}::{bot_id}"
 
 
 class PygameApp:
@@ -78,7 +81,7 @@ class PygameApp:
         tournament_summary_lines: list[str] = []
         selected_seed_input = False
         list_scroll_offset = 0
-        selected_lab_bot_id: str | None = None
+        selected_lab_bot_key: str | None = None
         create_form_open = False
         new_bot_name = ""
         new_bot_description = ""
@@ -145,7 +148,7 @@ class PygameApp:
                         elif bot_lab_rect.collidepoint(event.pos):
                             flow_state = GameSetupState(screen=AppScreen.BOT_LAB)
                             bots = list_bot_definitions()
-                            selected_lab_bot_id = bots[0].bot_id if bots else None
+                            selected_lab_bot_key = _bot_lab_key(bots[0].is_builtin, bots[0].bot_id) if bots else None
                         elif quit_rect.collidepoint(event.pos):
                             self.pg.quit()
                             return None
@@ -333,7 +336,10 @@ class PygameApp:
                     save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
                     delete_rect = self.pg.Rect(width - 430, height - 120, 180, 42)
                     detail_panel_rect = self.pg.Rect(details_x, 96, details_width, height - 226)
-                    selected_definition = get_bot_definition(selected_lab_bot_id) if selected_lab_bot_id else None
+                    selected_definition = next(
+                        (definition for definition in bot_definitions if _bot_lab_key(definition.is_builtin, definition.bot_id) == selected_lab_bot_key),
+                        None,
+                    )
                     if create_form_open:
                         detail_row_height = 42
                         detail_row_count = len(["__name__", "__description__", *new_bot_param_keys])
@@ -355,7 +361,9 @@ class PygameApp:
                                 removed = delete_custom_bot_definition(selected_definition.bot_id)
                                 if removed:
                                     bot_definitions = list_bot_definitions()
-                                    selected_lab_bot_id = bot_definitions[0].bot_id if bot_definitions else None
+                                    selected_lab_bot_key = (
+                                        _bot_lab_key(bot_definitions[0].is_builtin, bot_definitions[0].bot_id) if bot_definitions else None
+                                    )
                                     create_form_open = False
                                     bot_lab_scroll_offset = 0
                                     bot_lab_error = None
@@ -374,11 +382,11 @@ class PygameApp:
                         if list_rect.collidepoint(event.pos):
                             row = (event.pos[1] - list_rect.y) // 38
                             if 0 <= row < len(bot_definitions):
-                                selected_lab_bot_id = bot_definitions[row].bot_id
+                                selected_lab_bot_key = _bot_lab_key(bot_definitions[row].is_builtin, bot_definitions[row].bot_id)
                                 bot_lab_scroll_offset = 0
                             continue
-                        if new_from_selected_rect.collidepoint(event.pos) and selected_lab_bot_id is not None:
-                            base = get_bot_definition(selected_lab_bot_id)
+                        if new_from_selected_rect.collidepoint(event.pos) and selected_definition is not None:
+                            base = selected_definition
                             if base is not None:
                                 create_form_open = True
                                 new_bot_name = f"{base.display_name} Copy"
@@ -397,7 +405,7 @@ class PygameApp:
                             continue
                         if create_form_open and save_rect.collidepoint(event.pos):
                             try:
-                                base_definition = get_bot_definition(selected_lab_bot_id or "")
+                                base_definition = selected_definition
                                 if base_definition is None:
                                     raise ValueError("Selected base bot is missing.")
                                 raw_params: dict[str, float | int | str | bool] = {}
@@ -406,7 +414,7 @@ class PygameApp:
                                 parsed_params = merge_with_family_defaults(base_definition.base_controller_type, raw_params)
                                 create_custom_bot_definition(
                                     name=new_bot_name,
-                                    base_bot_id=selected_lab_bot_id or "",
+                                    base_bot_id=base_definition.bot_id,
                                     description=new_bot_description,
                                     parameters=parsed_params,
                                 )
@@ -562,13 +570,16 @@ class PygameApp:
                     self.pg.draw.rect(screen, (35, 35, 52), (40, 90, width // 3, height - 180), border_radius=8)
                     y = 100
                     for definition in bot_definitions:
-                        is_selected = definition.bot_id == selected_lab_bot_id
+                        is_selected = _bot_lab_key(definition.is_builtin, definition.bot_id) == selected_lab_bot_key
                         row_rect = self.pg.Rect(50, y, width // 3 - 20, 34)
                         self.pg.draw.rect(screen, (82, 110, 98) if is_selected else (58, 58, 86), row_rect, border_radius=6)
                         tag = "built-in" if definition.is_builtin else "custom"
                         screen.blit(small_font.render(f"{definition.display_name} ({tag})", True, (248, 248, 248)), (58, y + 6))
                         y += 38
-                    selected_definition = get_bot_definition(selected_lab_bot_id) if selected_lab_bot_id else None
+                    selected_definition = next(
+                        (definition for definition in bot_definitions if _bot_lab_key(definition.is_builtin, definition.bot_id) == selected_lab_bot_key),
+                        None,
+                    )
                     details_x = width // 3 + 70
                     details_width = width - details_x - 40
                     detail_panel_rect = self.pg.Rect(details_x, 96, details_width, height - 226)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from catan.controllers.bot_catalog import create_custom_bot_definition, delete_custom_bot_definition, get_bot_definition, list_bot_definitions
 from catan.runners.game_setup import ControllerType, TournamentSetupState, available_controller_types
 
@@ -112,3 +114,35 @@ def test_delete_custom_bot_definition_returns_false_for_missing_or_builtin(tmp_p
     storage_path = tmp_path / "custom_bots.json"
     assert delete_custom_bot_definition("missing_bot", storage_path=storage_path) is False
     assert delete_custom_bot_definition("random_bot", storage_path=storage_path) is False
+
+
+def test_loading_custom_bots_prunes_builtin_id_collisions(tmp_path) -> None:
+    storage_path = tmp_path / "custom_bots.json"
+    storage_path.write_text(
+        json.dumps(
+            [
+                {
+                    "bot_id": "heuristic_v1_fixed",
+                    "display_name": "Heuristic v1 Fixed",
+                    "base_controller_type": "heuristic_v1_fixed",
+                    "description": "legacy duplicate of built-in",
+                    "parameters": {},
+                },
+                {
+                    "bot_id": "custom_heuristic",
+                    "display_name": "Custom Heuristic",
+                    "base_controller_type": "heuristic_bot",
+                    "description": "valid custom bot",
+                    "parameters": {},
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    definitions = list_bot_definitions(storage_path=storage_path)
+    custom_ids = {definition.bot_id for definition in definitions if not definition.is_builtin}
+    assert custom_ids == {"custom_heuristic"}
+
+    persisted = json.loads(storage_path.read_text(encoding="utf-8"))
+    assert [entry["bot_id"] for entry in persisted] == ["custom_heuristic"]
