@@ -727,6 +727,7 @@ class PygameApp:
         spectator_speed = 1.0
         base_bot_delay = self._current_bot_delay_seconds(controllers)
         spectator_decision_ui = {"fallback_message": "Waiting for bot decision..."}
+        show_game_over_overlay = True
         self.return_to_main_menu = False
 
         running = True
@@ -825,6 +826,7 @@ class PygameApp:
                 hand_view_player=hand_view_player,
                 spectator_mode=spectator_mode,
                 spectator_data={**spectator_decision_ui, "speed": spectator_speed},
+                show_game_over_overlay=show_game_over_overlay,
             )
             settings_ui = self._draw_settings_ui(
                 screen,
@@ -856,6 +858,12 @@ class PygameApp:
                     if drawn.game_over_menu_button_rect is not None and drawn.game_over_menu_button_rect.collidepoint(event.pos):
                         self.return_to_main_menu = True
                         running = False
+                        continue
+                    if (
+                        drawn.game_over_view_board_button_rect is not None
+                        and drawn.game_over_view_board_button_rect.collidepoint(event.pos)
+                    ):
+                        show_game_over_overlay = False
                         continue
                     if spectator_mode:
                         selected_speed = self._match_speed_button(event.pos, drawn.speed_button_rects)
