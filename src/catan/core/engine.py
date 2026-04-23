@@ -9,6 +9,7 @@ from .models.action import (
     BuildRoad,
     BuildSettlement,
     BuyDevelopmentCard,
+    PlayKnightCard,
     DiscardResources,
     EndTurn,
     MoveRobber,
@@ -125,6 +126,8 @@ def get_legal_actions(state: GameState, player_id: PlayerId) -> list[Action]:
     legal_actions.extend(BuildCity(player_id=player_id, node_id=node_id) for node_id in _legal_city_nodes(state, player_id))
     if _can_buy_development_card(state, player_id):
         legal_actions.append(BuyDevelopmentCard(player_id=player_id))
+    if _can_play_knight_card(state, player_id):
+        legal_actions.append(PlayKnightCard(player_id=player_id))
     legal_actions.extend(_legal_bank_trades(state, player_id))
     return legal_actions
 
@@ -146,7 +149,7 @@ def apply_action(state: GameState, action: Action) -> GameState:
     if isinstance(action, StealResource):
         return _apply_steal_resource(state, action)
     if isinstance(action, SkipSteal):
-        return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+        return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None), robber_source=None)
     if isinstance(action, BuildRoad):
         return _apply_build_road(state, action)
     if isinstance(action, BuildSettlement):
@@ -155,6 +158,8 @@ def apply_action(state: GameState, action: Action) -> GameState:
         return _apply_build_city(state, action)
     if isinstance(action, BuyDevelopmentCard):
         return _apply_buy_development_card(state, action)
+    if isinstance(action, PlayKnightCard):
+        return _apply_play_knight_card(state, action)
     if isinstance(action, BankTrade):
         return _apply_bank_trade(state, action)
     if isinstance(action, ProposePlayerTrade):
@@ -189,6 +194,10 @@ def get_observation(state: GameState, player_id: PlayerId, *, debug: bool = Fals
             victory_points=pstate.victory_points,
             resource_count=sum(pstate.resources.values()),
             dev_card_count=sum(pstate.dev_cards.values()),
+            knights_played=pstate.knights_played,
+            longest_road_length=pstate.longest_road_length,
+            has_largest_army=state.largest_army_holder == pid,
+            has_longest_road=state.longest_road_holder == pid,
         )
         for pid, pstate in state.players.items()
     )
@@ -200,7 +209,7 @@ def get_observation(state: GameState, player_id: PlayerId, *, debug: bool = Fals
         phase=state.phase.name,
         own_resources=own_resources,
         own_dev_cards=own_dev_cards,
-        own_total_victory_points=_total_victory_points(own),
+        own_total_victory_points=_total_victory_points(state, player_id),
         dev_deck_remaining=len(state.dev_deck),
         players_public=players_public,
     )
@@ -432,6 +441,7 @@ def _apply_setup_road(state: GameState, action: PlaceSetupRoad) -> GameState:
             setup = replace(setup, pending_settlement_player=None)
 
     next_state = replace(state, phase=phase, setup=setup, players={**state.players, action.player_id: updated_player}, placed=replace(state.placed, roads=roads))
+    next_state = _recompute_longest_road_state(next_state)
     if phase == GamePhase.MAIN_TURN:
         next_state = replace(next_state, turn=TurnState(current_player=state.setup.order[0], step=TurnStep.ROLL))
     return _update_winner(next_state, action.player_id)
@@ -495,7 +505,7 @@ def _apply_move_robber(state: GameState, action: MoveRobber) -> GameState:
     moved_state = replace(state, robber_tile_id=action.tile_id)
     targets = _eligible_robber_targets(moved_state, action.player_id)
     if not targets:
-        return replace(moved_state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+        return replace(moved_state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None), robber_source=None)
     if len(targets) == 1:
         return _resolve_robber_steal(moved_state, action.player_id, targets[0])
     return replace(moved_state, turn=replace(state.turn, step=TurnStep.ROBBER_STEAL, priority_player=action.player_id))
@@ -510,7 +520,7 @@ def _resolve_robber_steal(state: GameState, player_id: PlayerId, target_player_i
     taker = state.players[player_id]
     available = [res for res, amount in target.resources.items() if amount > 0]
     if not available:
-        return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None))
+        return replace(state, turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None), robber_source=None)
 
     value, next_rng = next_u32(state.rng_state)
     resource = available[value % len(available)]
@@ -529,6 +539,7 @@ def _resolve_robber_steal(state: GameState, player_id: PlayerId, target_player_i
             player_id: replace(taker, resources=taker_res),
         },
         turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
+        robber_source=None,
     )
 
 
@@ -552,7 +563,13 @@ def _next_discard_player(requirements: dict[PlayerId, int]) -> PlayerId | None:
 def _apply_build_road(state: GameState, action: BuildRoad) -> GameState:
     player = _pay_cost(state.players[action.player_id], ROAD_COST)
     roads = {**state.placed.roads, action.edge_id: action.player_id}
-    return replace(state, players={**state.players, action.player_id: replace(player, roads_left=player.roads_left - 1)}, placed=replace(state.placed, roads=roads))
+    next_state = replace(
+        state,
+        players={**state.players, action.player_id: replace(player, roads_left=player.roads_left - 1)},
+        placed=replace(state.placed, roads=roads),
+    )
+    next_state = _recompute_longest_road_state(next_state)
+    return _update_winner(next_state, action.player_id)
 
 
 def _apply_build_settlement(state: GameState, action: BuildSettlement) -> GameState:
@@ -563,6 +580,7 @@ def _apply_build_settlement(state: GameState, action: BuildSettlement) -> GameSt
         players={**state.players, action.player_id: replace(player, settlements_left=player.settlements_left - 1, victory_points=player.victory_points + 1)},
         placed=replace(state.placed, settlements=settlements),
     )
+    next_state = _recompute_longest_road_state(next_state)
     return _update_winner(next_state, action.player_id)
 
 
@@ -576,6 +594,7 @@ def _apply_build_city(state: GameState, action: BuildCity) -> GameState:
         players={**state.players, action.player_id: replace(player, settlements_left=player.settlements_left + 1, cities_left=player.cities_left - 1, victory_points=player.victory_points + 1)},
         placed=replace(state.placed, settlements=settlements, cities=cities),
     )
+    next_state = _recompute_longest_road_state(next_state)
     return _update_winner(next_state, action.player_id)
 
 
@@ -585,12 +604,29 @@ def _apply_buy_development_card(state: GameState, action: BuyDevelopmentCard) ->
     remaining_deck = state.dev_deck[1:]
     dev_cards = dict(player.dev_cards)
     dev_cards[drawn_card] += 1
-    updated_player = replace(player, dev_cards=dev_cards)
+    new_dev_cards = dict(player.new_dev_cards)
+    new_dev_cards[drawn_card] += 1
+    updated_player = replace(player, dev_cards=dev_cards, new_dev_cards=new_dev_cards)
     next_state = replace(
         state,
         players={**state.players, action.player_id: updated_player},
         dev_deck=remaining_deck,
     )
+    return _update_winner(next_state, action.player_id)
+
+
+def _apply_play_knight_card(state: GameState, action: PlayKnightCard) -> GameState:
+    player = state.players[action.player_id]
+    dev_cards = dict(player.dev_cards)
+    dev_cards[DevelopmentCardType.KNIGHT] -= 1
+    updated_player = replace(player, dev_cards=dev_cards, knights_played=player.knights_played + 1)
+    next_state = replace(
+        state,
+        players={**state.players, action.player_id: updated_player},
+        turn=replace(state.turn, step=TurnStep.ROBBER_MOVE, priority_player=action.player_id),
+        robber_source="knight",
+    )
+    next_state = _recompute_largest_army_state(next_state)
     return _update_winner(next_state, action.player_id)
 
 
@@ -741,10 +777,19 @@ def _accessible_ports(state: GameState, player_id: PlayerId):
 
 
 def _apply_end_turn(state: GameState) -> GameState:
+    current_player = state.turn.current_player
+    current = state.players[current_player]
+    reset_new = {card_type: 0 for card_type in DevelopmentCardType}
+    updated_current = replace(current, new_dev_cards=reset_new)
     order = list(state.players.keys())
-    idx = order.index(state.turn.current_player)
+    idx = order.index(current_player)
     next_player = order[(idx + 1) % len(order)]
-    return replace(state, turn=replace(state.turn, current_player=next_player, step=TurnStep.ROLL, last_roll=None, priority_player=None))
+    return replace(
+        state,
+        players={**state.players, current_player: updated_current},
+        turn=replace(state.turn, current_player=next_player, step=TurnStep.ROLL, last_roll=None, priority_player=None),
+        robber_source=None,
+    )
 
 
 def _grant_setup_starting_resources(state: GameState, player_id: PlayerId, node_id: NodeId) -> GameState:
@@ -798,8 +843,9 @@ def _pay_cost(player: PlayerState, cost: dict[ResourceType, int]) -> PlayerState
 
 
 def _update_winner(state: GameState, player_id: PlayerId) -> GameState:
-    if _total_victory_points(state.players[player_id]) >= 10:
-        return replace(state, winner=player_id, phase=GamePhase.GAME_OVER)
+    for pid in sorted(state.players):
+        if _total_victory_points(state, pid) >= 10:
+            return replace(state, winner=pid, phase=GamePhase.GAME_OVER)
     return state
 
 
@@ -813,8 +859,99 @@ def _can_buy_development_card(state: GameState, player_id: PlayerId) -> bool:
     return _has_resources(state.players[player_id], DEVELOPMENT_CARD_COST)
 
 
-def _total_victory_points(player: PlayerState) -> int:
-    return player.victory_points + player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
+def _can_play_knight_card(state: GameState, player_id: PlayerId) -> bool:
+    if state.turn is None or state.turn.step != TurnStep.ACTIONS:
+        return False
+    if state.turn.current_player != player_id:
+        return False
+    player = state.players[player_id]
+    playable_knights = player.dev_cards.get(DevelopmentCardType.KNIGHT, 0) - player.new_dev_cards.get(DevelopmentCardType.KNIGHT, 0)
+    return playable_knights > 0
+
+
+def _total_victory_points(state: GameState, player_id: PlayerId) -> int:
+    player = state.players[player_id]
+    total = player.victory_points + player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
+    if state.largest_army_holder == player_id:
+        total += 2
+    if state.longest_road_holder == player_id:
+        total += 2
+    return total
+
+
+def _recompute_largest_army_state(state: GameState) -> GameState:
+    counts = {pid: player.knights_played for pid, player in state.players.items()}
+    holder = _recompute_award_holder(counts, state.largest_army_holder, minimum=3)
+    return replace(state, largest_army_holder=holder)
+
+
+def _recompute_longest_road_state(state: GameState) -> GameState:
+    players = dict(state.players)
+    lengths: dict[PlayerId, int] = {}
+    for pid, player in state.players.items():
+        length = _calculate_longest_road_length(state, pid)
+        lengths[pid] = length
+        players[pid] = replace(player, longest_road_length=length)
+    holder = _recompute_award_holder(lengths, state.longest_road_holder, minimum=5)
+    return replace(state, players=players, longest_road_holder=holder)
+
+
+def _recompute_award_holder(counts: dict[PlayerId, int], current_holder: PlayerId | None, *, minimum: int) -> PlayerId | None:
+    if current_holder is None:
+        max_count = max(counts.values(), default=0)
+        if max_count < minimum:
+            return None
+        leaders = [pid for pid, count in counts.items() if count == max_count]
+        return leaders[0] if len(leaders) == 1 else None
+
+    current_count = counts.get(current_holder, 0)
+    if current_count < minimum:
+        max_count = max(counts.values(), default=0)
+        if max_count < minimum:
+            return None
+        leaders = [pid for pid, count in counts.items() if count == max_count]
+        return leaders[0] if len(leaders) == 1 else None
+
+    better = [(pid, count) for pid, count in counts.items() if pid != current_holder and count > current_count]
+    if not better:
+        return current_holder
+    best_count = max(count for _, count in better)
+    leaders = [pid for pid, count in better if count == best_count]
+    return leaders[0] if len(leaders) == 1 else current_holder
+
+
+def _calculate_longest_road_length(state: GameState, player_id: PlayerId) -> int:
+    owned_edges = [edge_id for edge_id, owner in state.placed.roads.items() if owner == player_id]
+    if not owned_edges:
+        return 0
+    node_to_edges: dict[NodeId, list[EdgeId]] = {}
+    for edge_id in owned_edges:
+        a, b = state.board.edge_to_adjacent_nodes[edge_id]
+        node_to_edges.setdefault(a, []).append(edge_id)
+        node_to_edges.setdefault(b, []).append(edge_id)
+
+    def can_transit(node_id: NodeId) -> bool:
+        owner = state.placed.cities.get(node_id) or state.placed.settlements.get(node_id)
+        return owner is None or owner == player_id
+
+    def dfs_from_node(node_id: NodeId, used_edges: frozenset[EdgeId]) -> int:
+        if not can_transit(node_id):
+            return 0
+        best = 0
+        for next_edge in node_to_edges.get(node_id, []):
+            if next_edge in used_edges:
+                continue
+            a, b = state.board.edge_to_adjacent_nodes[next_edge]
+            next_node = b if a == node_id else a
+            best = max(best, 1 + dfs_from_node(next_node, used_edges | {next_edge}))
+        return best
+
+    longest = 0
+    for edge_id in owned_edges:
+        a, b = state.board.edge_to_adjacent_nodes[edge_id]
+        longest = max(longest, 1 + dfs_from_node(a, frozenset({edge_id})))
+        longest = max(longest, 1 + dfs_from_node(b, frozenset({edge_id})))
+    return longest
 
 
 def _build_and_shuffle_dev_deck(seed: int) -> tuple[tuple[DevelopmentCardType, ...], int]:

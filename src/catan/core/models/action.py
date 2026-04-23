@@ -105,6 +105,11 @@ class BuyDevelopmentCard(ActionBase):
     pass
 
 
+@dataclass(frozen=True)
+class PlayKnightCard(ActionBase):
+    pass
+
+
 Action = (
     PlaceSetupSettlement
     | PlaceSetupRoad
@@ -123,5 +128,6 @@ Action = (
     | ChooseTradePartner
     | RejectTradeResponses
     | BuyDevelopmentCard
+    | PlayKnightCard
     | EndTurn
 )

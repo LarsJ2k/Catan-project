@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions, get_observation
-from catan.core.models.action import BuyDevelopmentCard
+from catan.core.models.action import BuyDevelopmentCard, MoveRobber, PlayKnightCard, StealResource
 from catan.core.models.board import Board, Edge, Tile
 from catan.core.models.enums import DevelopmentCardType, GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, InitialGameConfig, PlacedPieces, PlayerState, SetupState, TurnState
@@ -186,6 +186,62 @@ def test_buying_dev_cards_is_deterministic_with_same_seed_and_actions() -> None:
     assert a == b
 
 
+def test_knight_play_requires_owned_and_playable_knight() -> None:
+    state = make_main_turn_state()
+    assert PlayKnightCard(player_id=1) not in get_legal_actions(state, 1)
+
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.KNIGHT] = 1
+    fresh = {card_type: 0 for card_type in DevelopmentCardType}
+    fresh[DevelopmentCardType.KNIGHT] = 1
+    state = replace(state, players={1: replace(state.players[1], dev_cards=cards, new_dev_cards=fresh), 2: state.players[2]})
+    assert PlayKnightCard(player_id=1) not in get_legal_actions(state, 1)
+
+    state = replace(state, players={1: replace(state.players[1], new_dev_cards={card_type: 0 for card_type in DevelopmentCardType}), 2: state.players[2]})
+    assert PlayKnightCard(player_id=1) in get_legal_actions(state, 1)
+
+
+def test_knight_moves_robber_without_discard_and_steal_flow_matches_rules() -> None:
+    board = Board(
+        nodes=(0, 1, 2),
+        edges=(Edge(id=0, node_a=0, node_b=1),),
+        tiles=(Tile(id=0, terrain=TerrainType.FIELDS, number_token=8), Tile(id=1, terrain=TerrainType.FOREST, number_token=5)),
+        node_to_adjacent_tiles={0: (0,), 1: (0,), 2: (1,)},
+        node_to_adjacent_edges={0: (0,), 1: (0,), 2: ()},
+        edge_to_adjacent_nodes={0: (0, 1)},
+        tile_to_nodes={0: (0, 1), 1: (2,)},
+        ports=(),
+        node_to_ports={0: (), 1: (), 2: ()},
+    )
+    players = {
+        1: PlayerState(player_id=1, resources={r: 0 for r in ResourceType}),
+        2: PlayerState(player_id=2, resources={r: 1 for r in ResourceType}),
+        3: PlayerState(player_id=3, resources={r: 1 for r in ResourceType}),
+    }
+    state = GameState(
+        board=board,
+        players=players,
+        phase=GamePhase.MAIN_TURN,
+        setup=SetupState(order=[1, 2, 3]),
+        turn=TurnState(current_player=1, step=TurnStep.ACTIONS),
+        placed=PlacedPieces(settlements={0: 2, 1: 3}, roads={}, cities={}),
+        rng_state=9,
+        robber_tile_id=1,
+    )
+    cards = {card_type: 0 for card_type in DevelopmentCardType}
+    cards[DevelopmentCardType.KNIGHT] = 1
+    state = replace(state, players={**state.players, 1: replace(state.players[1], dev_cards=cards, new_dev_cards={card_type: 0 for card_type in DevelopmentCardType})})
+
+    after_play = apply_action(state, PlayKnightCard(player_id=1))
+    assert after_play.turn.step == TurnStep.ROBBER_MOVE
+    assert after_play.discard_requirements == {}
+
+    after_move = apply_action(after_play, MoveRobber(player_id=1, tile_id=0))
+    assert after_move.turn.step == TurnStep.ROBBER_STEAL
+    targets = sorted(a.target_player_id for a in get_legal_actions(after_move, 1) if isinstance(a, StealResource))
+    assert targets == [2, 3]
+
+
 def test_repeated_dev_draws_update_deck_and_cards_without_state_aliasing() -> None:
     state = make_main_turn_state()
     starting_deck = (
@@ -270,3 +326,24 @@ def test_opponent_observation_only_reveals_dev_card_counts_not_types() -> None:
     assert p2_obs.own_dev_cards["KNIGHT"] == 0
     assert p2_obs.own_dev_cards["VICTORY_POINT"] == 0
     assert p1_public.dev_card_count == 2
+
+
+def test_public_observation_exposes_knights_and_longest_road_fields() -> None:
+    state = make_main_turn_state()
+    state = replace(
+        state,
+        largest_army_holder=1,
+        longest_road_holder=2,
+        players={
+            1: replace(state.players[1], knights_played=3, longest_road_length=4),
+            2: replace(state.players[2], knights_played=1, longest_road_length=5),
+        },
+    )
+    obs = get_observation(state, 1, debug=False)
+    p1 = next(view for view in obs.players_public if view.player_id == 1)
+    p2 = next(view for view in obs.players_public if view.player_id == 2)
+    assert p1.knights_played == 3
+    assert p1.has_largest_army is True
+    assert p1.has_longest_road is False
+    assert p2.longest_road_length == 5
+    assert p2.has_longest_road is True

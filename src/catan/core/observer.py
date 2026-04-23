@@ -13,6 +13,10 @@ class PublicPlayerView:
     victory_points: int
     resource_count: int
     dev_card_count: int
+    knights_played: int
+    longest_road_length: int
+    has_largest_army: bool
+    has_longest_road: bool
 
 
 @dataclass(frozen=True)

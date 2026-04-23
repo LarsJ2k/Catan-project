@@ -3,7 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, BuyDevelopmentCard, EndTurn, MoveRobber, PlaceSetupRoad, PlaceSetupSettlement, RollDice, StealResource
+from catan.core.models.action import (
+    BankTrade,
+    BuildCity,
+    BuildRoad,
+    BuildSettlement,
+    BuyDevelopmentCard,
+    EndTurn,
+    MoveRobber,
+    PlaceSetupRoad,
+    PlaceSetupSettlement,
+    PlayKnightCard,
+    RollDice,
+    StealResource,
+)
 from catan.core.models.enums import DevelopmentCardType, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 
@@ -16,6 +29,7 @@ class DrawnUi:
     roll_button_rect: object
     end_turn_button_rect: object
     action_button_rects: dict[str, object]
+    dev_card_rects: dict[DevelopmentCardType, object]
     event_log_scroll_up_rect: object | None
     event_log_scroll_down_rect: object | None
 
@@ -131,7 +145,9 @@ class PygameRenderer:
             height=height,
             event_log_offset=event_log_offset,
         )
-        self._draw_bottom_bar(screen, state, active_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui)
+        dev_card_rects = self._draw_bottom_bar(
+            screen, state, active_player, width, height, panel_x, bottom_bar_height, trade_ui, discard_ui, legal_actions
+        )
         self._draw_dice_button_in_board_area(
             screen,
             state,
@@ -149,6 +165,7 @@ class PygameRenderer:
             roll_button_rect=roll_rect,
             end_turn_button_rect=end_rect,
             action_button_rects=action_button_rects,
+            dev_card_rects=dev_card_rects,
             event_log_scroll_up_rect=scroll_up_rect,
             event_log_scroll_down_rect=scroll_down_rect,
         )
@@ -304,8 +321,12 @@ class PygameRenderer:
             screen.blit(self.small_font.render(f"P{pid}", True, self._player_color(pid)), (row.x + 8, row.y + 4))
             vp_text = self._scoreboard_vp_text(state, player_id=pid)
             screen.blit(self.small_font.render(vp_text, True, (220, 220, 220)), (row.x + 46, row.y + 4))
-            screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.right - 154, row.y + 4))
-            screen.blit(self.small_font.render(f"Dev {dev_count}", True, (220, 220, 220)), (row.right - 74, row.y + 4))
+            screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.x + 112, row.y + 4))
+            knight_color = (120, 220, 120) if state.largest_army_holder == pid else (220, 220, 220)
+            road_color = (120, 220, 120) if state.longest_road_holder == pid else (220, 220, 220)
+            screen.blit(self.small_font.render(f"K {p.knights_played}", True, knight_color), (row.x + 184, row.y + 4))
+            screen.blit(self.small_font.render(f"R {p.longest_road_length}", True, road_color), (row.x + 228, row.y + 4))
+            screen.blit(self.small_font.render(f"Dev {dev_count}", True, (220, 220, 220)), (row.right - 54, row.y + 4))
             y += 28
         screen.blit(self.small_font.render(f"Dev deck remaining: {len(state.dev_deck)}", True, (226, 226, 226)), (panel_x + 10, y + 4))
 
@@ -336,11 +357,12 @@ class PygameRenderer:
         bottom_h: int,
         trade_ui: dict[str, object] | None,
         discard_ui: dict[str, object] | None,
-    ) -> None:
+        legal_actions: Iterable[object],
+    ) -> dict[DevelopmentCardType, object]:
         bar_y = height - bottom_h
         self.pg.draw.rect(screen, (34, 34, 40), (0, bar_y, panel_x, bottom_h))
         if active_player is None:
-            return
+            return {}
         player = state.players[active_player]
         start_x = 16
         card_w = 78
@@ -358,31 +380,56 @@ class PygameRenderer:
                 trade_hand_rects[resource] = self.pg.Rect(x, bar_y + 34, card_w, card_h)
             if discard_hand_rects is not None:
                 discard_hand_rects[resource] = self.pg.Rect(x, bar_y + 34, card_w, card_h)
-        self._draw_dev_card_panel(screen, state, active_player, start_x + 5 * (card_w + gap) + 18, bar_y + 34)
+        return self._draw_dev_card_panel(
+            screen,
+            state,
+            active_player,
+            start_x + 5 * (card_w + gap) + 18,
+            bar_y + 34,
+            legal_actions,
+        )
 
-    def _draw_dev_card_panel(self, screen, state: GameState, active_player: int | None, start_x: int, start_y: int) -> None:
+    def _draw_dev_card_panel(
+        self,
+        screen,
+        state: GameState,
+        active_player: int | None,
+        start_x: int,
+        start_y: int,
+        legal_actions: Iterable[object],
+    ) -> dict[DevelopmentCardType, object]:
         if active_player is None:
-            return
+            return {}
         player = state.players[active_player]
         card_w = 78
         card_h = 94
         gap = 10
         screen.blit(self.small_font.render("Dev cards", True, (236, 236, 236)), (start_x, start_y - 20))
         visible_card_types = [card_type for card_type, count in player.dev_cards.items() if count > 0]
+        knight_playable = any(isinstance(action, PlayKnightCard) for action in legal_actions)
+        clickable_rects: dict[DevelopmentCardType, object] = {}
         for idx, card_type in enumerate(visible_card_types):
             x = start_x + idx * (card_w + gap)
             rect = self.pg.Rect(x, start_y, card_w, card_h)
             count = player.dev_cards.get(card_type, 0)
-            face_color = (84, 92, 120)
-            border_color = (138, 145, 176)
+            is_clickable_knight = card_type == DevelopmentCardType.KNIGHT and knight_playable
+            is_disabled_knight = card_type == DevelopmentCardType.KNIGHT and not knight_playable
+            face_color = (84, 92, 120) if not is_disabled_knight else (62, 62, 70)
+            border_color = (120, 220, 120) if is_clickable_knight else (138, 145, 176)
             self.pg.draw.rect(screen, face_color, rect, border_radius=6)
-            self.pg.draw.rect(screen, border_color, rect, width=2, border_radius=6)
+            self.pg.draw.rect(screen, border_color, rect, width=3 if is_clickable_knight else 2, border_radius=6)
             label = self._dev_card_name(card_type)
-            label_surface = self.small_font.render(label, True, (235, 235, 240))
+            label_surface = self.small_font.render(label, True, (235, 235, 240) if not is_disabled_knight else (182, 182, 182))
             screen.blit(label_surface, (x + 8, start_y + 12))
             count_rect = self.pg.Rect(rect.right - 24, rect.y + 4, 20, 18)
             self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
             screen.blit(self.small_font.render(str(count), True, (24, 24, 24)), (count_rect.x + 6, count_rect.y + 2))
+            if is_clickable_knight:
+                screen.blit(self.small_font.render("Play", True, (120, 220, 120)), (x + 8, start_y + 66))
+                clickable_rects[card_type] = rect
+            elif is_disabled_knight:
+                screen.blit(self.small_font.render("New", True, (150, 150, 150)), (x + 8, start_y + 66))
+        return clickable_rects
 
     def _draw_dice_button(self, screen, x: int, y: int, can_roll: bool, action_button_rects: dict[str, object], state: GameState) -> None:
         dice_rect = self.pg.Rect(x, y, 88, 72)

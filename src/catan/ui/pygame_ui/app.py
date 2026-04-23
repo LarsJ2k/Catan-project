@@ -18,8 +18,9 @@ from catan.core.models.action import (
     RespondToTradeInterested,
     RespondToTradePass,
     RollDice,
+    PlayKnightCard,
 )
-from catan.core.models.enums import PlayerTradePhase, ResourceType, TurnStep
+from catan.core.models.enums import DevelopmentCardType, PlayerTradePhase, ResourceType, TurnStep
 from catan.core.models.state import GameState
 from catan.runners.local_pygame_runner import LocalPygameRunner
 
@@ -200,6 +201,11 @@ class PygameApp:
                             continue
                         selected_action_text = str(clicked_action)
                         controllers[active_player].submit_action_intent(clicked_action)
+                        continue
+                    dev_click_action = self._dev_card_click_action(event.pos, drawn.dev_card_rects, legal)
+                    if dev_click_action is not None:
+                        selected_action_text = str(dev_click_action)
+                        controllers[active_player].submit_action_intent(dev_click_action)
                         continue
                     if trade_window_open and trade_ui is not None:
                         trade_action = self._handle_trade_overlay_click(
@@ -470,6 +476,12 @@ class PygameApp:
             return "trade_cancel"
         return None
 
+    def _dev_card_click_action(self, pos: tuple[int, int], dev_card_rects: dict[DevelopmentCardType, object], legal_actions: list[object]) -> PlayKnightCard | None:
+        knight_rect = dev_card_rects.get(DevelopmentCardType.KNIGHT)
+        if knight_rect is None or not knight_rect.collidepoint(pos):
+            return None
+        return next((action for action in legal_actions if isinstance(action, PlayKnightCard)), None)
+
     def _handle_trade_overlay_click(
         self,
         pos: tuple[int, int],
@@ -607,6 +619,7 @@ class PygameApp:
 
     def _describe_transition(self, before: GameState, after: GameState, action_text: str) -> list[str]:
         lines: list[str] = [f"applied {action_text}"]
+        acting_player = before.turn.current_player if before.turn is not None else None
 
         before_roll = before.turn.last_roll if before.turn else None
         after_roll = after.turn.last_roll if after.turn else None
@@ -614,8 +627,8 @@ class PygameApp:
             total = after_roll[0] + after_roll[1]
             lines.append(f"Dice rolled {after_roll[0]} + {after_roll[1]} = {total}")
 
-        if before.robber_tile_id != after.robber_tile_id:
-            lines.append(f"Robber moved to tile {after.robber_tile_id}")
+        if before.robber_tile_id != after.robber_tile_id and acting_player is not None:
+            lines.append(f"P{acting_player} moved the robber to tile {after.robber_tile_id}")
             if after.turn and after.turn.step == TurnStep.ROBBER_STEAL:
                 lines.append("Select a victim to steal from")
 
@@ -636,6 +649,19 @@ class PygameApp:
             lines.append("No eligible victim to steal from")
         for thief, victim, resource in steals:
             lines.append(f"P{thief} stole 1 {self._resource_name(resource)} from P{victim}")
+        if acting_player is not None and after.players[acting_player].knights_played > before.players[acting_player].knights_played:
+            lines.append(f"P{acting_player} played a Knight card")
+            lines.append(f"P{acting_player} now has {after.players[acting_player].knights_played} Knights played")
+        if before.largest_army_holder != after.largest_army_holder:
+            if before.largest_army_holder is not None:
+                lines.append(f"P{before.largest_army_holder} lost Largest Army")
+            if after.largest_army_holder is not None:
+                lines.append(f"P{after.largest_army_holder} claimed Largest Army")
+        if before.longest_road_holder != after.longest_road_holder:
+            if before.longest_road_holder is not None:
+                lines.append(f"P{before.longest_road_holder} lost Longest Road")
+            if after.longest_road_holder is not None:
+                lines.append(f"P{after.longest_road_holder} claimed Longest Road")
         bank_trade_line = self._detect_bank_trade(before, after)
         if bank_trade_line is not None:
             lines.append(bank_trade_line)
