@@ -162,10 +162,26 @@ def _rotated(order: tuple[str, ...], shift: int) -> tuple[str, ...]:
     return order[shift:] + order[:shift]
 
 
-def _build_tournament_id(config: TournamentConfig) -> str:
+def _next_tournament_sequence(config: TournamentConfig) -> int:
+    out_dir = Path(config.output_options.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    counter_path = out_dir / ".tournament_counter"
+    if counter_path.exists():
+        try:
+            last_sequence = int(counter_path.read_text(encoding="utf-8").strip() or "0")
+        except ValueError:
+            last_sequence = 0
+    else:
+        last_sequence = 0
+    next_sequence = last_sequence + 1
+    counter_path.write_text(str(next_sequence), encoding="utf-8")
+    return next_sequence
+
+
+def _build_tournament_id(config: TournamentConfig, sequence: int) -> str:
     return (
         f"{config.output_options.output_prefix}_"
-        f"{config.format.value}_seed{config.base_seed}_blocks{config.seed_blocks}"
+        f"{config.format.value}_{config.base_seed}_{config.seed_blocks}_{sequence}"
     )
 
 
@@ -221,7 +237,8 @@ class HeadlessTournamentRunner:
         config: TournamentConfig,
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> TournamentResult:
-        tournament_id = _build_tournament_id(config)
+        tournament_sequence = _next_tournament_sequence(config)
+        tournament_id = _build_tournament_id(config, tournament_sequence)
         matches = generate_match_configs(config)
         if progress_callback is not None:
             progress_callback(0, len(matches))
@@ -365,7 +382,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
     opts = result.config.output_options
     out_dir = Path(opts.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{opts.output_prefix}_{result.config.format.value}_{result.config.base_seed}_{result.config.seed_blocks}"
+    stem = result.tournament_id
     json_path = out_dir / f"{stem}.json" if opts.write_json else None
     match_excel_path = out_dir / f"{stem}_match_results.xlsx" if opts.write_csv else None
     summary_excel_path = out_dir / f"{stem}_tournament_summary.xlsx" if opts.write_csv else None
