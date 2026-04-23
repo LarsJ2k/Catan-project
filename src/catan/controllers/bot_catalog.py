@@ -11,6 +11,7 @@ from catan.controllers.heuristic_params import HeuristicScoringParams, default_f
 from catan.controllers.random_bot_controller import RandomBotController
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
+from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
 from catan.runners.game_setup import ControllerType
 
 
@@ -44,6 +45,14 @@ def _heuristic_v1_baseline_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicV1BaselineBotController(enable_delay=enable_bot_delay)
 
 
+def _heuristic_v1_fixed_factory(enable_bot_delay: bool) -> Controller:
+    return HeuristicV1BaselineBotController(enable_delay=enable_bot_delay)
+
+
+def _heuristic_v1_1_factory(enable_bot_delay: bool) -> Controller:
+    return HeuristicV1_1BotController(enable_delay=enable_bot_delay)
+
+
 _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
     ControllerSpec(
         controller_type=ControllerType.RANDOM_BOT,
@@ -62,6 +71,18 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
         label="Heuristic v1 Baseline",
         is_bot=True,
         factory=_heuristic_v1_baseline_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.HEURISTIC_V1_FIXED,
+        label="Heuristic v1 Fixed",
+        is_bot=True,
+        factory=_heuristic_v1_fixed_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.HEURISTIC_V1_1,
+        label="Heuristic v1.1",
+        is_bot=True,
+        factory=_heuristic_v1_1_factory,
     ),
 )
 
@@ -92,6 +113,22 @@ _BUILTIN_BOTS: tuple[BotDefinition, ...] = (
         base_controller_type=ControllerType.HEURISTIC_V1_BASELINE,
         description="Stronger first-generation heuristic with road/robber/trade/dev scoring.",
         parameters=default_family_parameters(ControllerType.HEURISTIC_V1_BASELINE),
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_v1_fixed",
+        display_name="Heuristic v1 Fixed",
+        base_controller_type=ControllerType.HEURISTIC_V1_BASELINE,
+        description="Compatibility alias of v1 baseline/fixed preset.",
+        parameters=default_family_parameters(ControllerType.HEURISTIC_V1_FIXED),
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_v1_1",
+        display_name="Heuristic v1.1",
+        base_controller_type=ControllerType.HEURISTIC_V1_1,
+        description="Greedy v1 refinement with settlement/city-aware road and dev discipline.",
+        parameters=default_family_parameters(ControllerType.HEURISTIC_V1_1),
         is_builtin=True,
     ),
 )
@@ -251,6 +288,20 @@ def build_bot_controller_from_definition(
         )
     if definition.base_controller_type == ControllerType.HEURISTIC_V1_BASELINE:
         return HeuristicV1BaselineBotController(
+            seed=seed,
+            delay_seconds=delay_seconds,
+            enable_delay=enable_bot_delay,
+            heuristic_params=HeuristicScoringParams.from_mapping(parameters),
+        )
+    if definition.base_controller_type == ControllerType.HEURISTIC_V1_FIXED:
+        return HeuristicV1BaselineBotController(
+            seed=seed,
+            delay_seconds=delay_seconds,
+            enable_delay=enable_bot_delay,
+            heuristic_params=HeuristicScoringParams.from_mapping(parameters),
+        )
+    if definition.base_controller_type == ControllerType.HEURISTIC_V1_1:
+        return HeuristicV1_1BotController(
             seed=seed,
             delay_seconds=delay_seconds,
             enable_delay=enable_bot_delay,

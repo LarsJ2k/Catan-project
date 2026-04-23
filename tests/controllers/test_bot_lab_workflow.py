@@ -53,7 +53,14 @@ def test_setup_and_tournament_see_saved_custom_bots(tmp_path, monkeypatch) -> No
     assert "delay_seconds" not in created.parameters
     options = available_controller_types()
     assert ControllerType.HUMAN.value in options
-    builtin_ids = {ControllerType.HUMAN.value, "random_bot", "heuristic_bot", "heuristic_v1_baseline"}
+    builtin_ids = {
+        ControllerType.HUMAN.value,
+        "random_bot",
+        "heuristic_bot",
+        "heuristic_v1_baseline",
+        "heuristic_v1_fixed",
+        "heuristic_v1_1",
+    }
     assert any(option not in builtin_ids for option in options)
 
     custom_id = next(option for option in options if option not in builtin_ids)
