@@ -898,6 +898,10 @@ class PygameApp:
                 spectator_data={
                     "player_decisions": spectator_decision_history,
                     "speed": spectator_speed,
+                    "player_bot_names": {
+                        player_id: self._spectator_bot_name(controller)
+                        for player_id, controller in controllers.items()
+                    },
                 },
                 show_game_over_overlay=show_game_over_overlay,
             )
@@ -1182,6 +1186,13 @@ class PygameApp:
             "chosen_line": chosen_line,
             "fallback_message": str(payload.get("message", f"Random choice from {payload.get('legal_action_count', '?')} legal actions")),
         }
+
+    def _spectator_bot_name(self, controller: object) -> str:
+        class_name = controller.__class__.__name__
+        suffix = "BotController"
+        if class_name.endswith(suffix):
+            return class_name[: -len(suffix)]
+        return class_name
 
     def _action_label(self, action: object, state: GameState) -> str:
         if isinstance(action, (BuildSettlement, PlaceSetupSettlement)):

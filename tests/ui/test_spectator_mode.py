@@ -162,6 +162,15 @@ def test_decision_panel_shows_scored_candidates_for_v1_heuristic_payload() -> No
     assert "+124.80" in ui["candidate_lines"][0]
 
 
+def test_spectator_bot_name_is_short_class_variant() -> None:
+    app = PygameApp(DummyPygame())
+
+    class HeuristicV1_1BotController:
+        pass
+
+    assert app._spectator_bot_name(HeuristicV1_1BotController()) == "HeuristicV1_1"
+
+
 def test_spectator_dashboard_shows_all_players_and_active_outline() -> None:
     renderer = PygameRenderer.__new__(PygameRenderer)
     renderer._player_color = PygameRenderer._player_color.__get__(renderer, PygameRenderer)
@@ -203,13 +212,13 @@ def test_spectator_dashboard_shows_all_players_and_active_outline() -> None:
     renderer._draw_resource_card = capture_card
     state = make_state()
 
-    renderer._draw_spectator_dashboard(DummyScreen(), state, active_player=2, panel_x=900, height=700, bottom_h=220)
+    renderer._draw_spectator_dashboard(DummyScreen(), state, active_player=2, panel_x=900, height=700, bottom_h=220, spectator_data={})
 
     assert len(cards) == 20
     highlighted = [call for call in rect_calls if call[0] == renderer._player_color(2) and call[1] == 3]
     assert len(highlighted) >= 1
     drawn_dev_cards = [call for call in rect_calls if call[0] == (78, 88, 112)]
-    assert len(drawn_dev_cards) == 20
+    assert len(drawn_dev_cards) == 2
 
 
 def test_scoreboard_vp_text_can_reveal_hidden_vp_for_all_players_in_spectator_mode() -> None:
