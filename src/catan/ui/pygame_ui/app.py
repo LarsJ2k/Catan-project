@@ -57,6 +57,7 @@ class PygameApp:
         small_font = self.pg.font.SysFont("arial", 22)
         flow_state = GameSetupState()
         selected_seed_input = False
+        open_controller_dropdown: int | None = None
 
         while True:
             width, height = screen.get_size()
@@ -94,6 +95,7 @@ class PygameApp:
                         if back_rect.collidepoint(event.pos):
                             flow_state = flow_state.back_to_menu()
                             selected_seed_input = False
+                            open_controller_dropdown = None
                             continue
                         if start_rect.collidepoint(event.pos):
                             config = flow_state.to_launch_config()
@@ -107,12 +109,37 @@ class PygameApp:
                             elif flow_state.use_random_seed:
                                 flow_state = flow_state.with_fixed_seed_text("")
                             continue
+                        clicked_dropdown_option = False
+                        if open_controller_dropdown is not None:
+                            dropdown_slot_rect = slot_rects[open_controller_dropdown]
+                            dropdown_options = list(ControllerType)
+                            option_rects = [
+                                self.pg.Rect(
+                                    dropdown_slot_rect.x,
+                                    dropdown_slot_rect.bottom + option_idx * dropdown_slot_rect.height,
+                                    dropdown_slot_rect.width,
+                                    dropdown_slot_rect.height,
+                                )
+                                for option_idx in range(len(dropdown_options))
+                            ]
+                            for option_idx, option_rect in enumerate(option_rects):
+                                if option_rect.collidepoint(event.pos):
+                                    flow_state = flow_state.with_player_controller(open_controller_dropdown, dropdown_options[option_idx])
+                                    open_controller_dropdown = None
+                                    clicked_dropdown_option = True
+                                    break
+
+                        if clicked_dropdown_option:
+                            continue
+
+                        clicked_slot = False
                         for idx, rect in enumerate(slot_rects):
                             if rect.collidepoint(event.pos):
-                                current = flow_state.player_slots[idx].controller_type
-                                next_type = ControllerType.RANDOM_BOT if current == ControllerType.HUMAN else ControllerType.HUMAN
-                                flow_state = flow_state.with_player_controller(idx, next_type)
+                                open_controller_dropdown = None if open_controller_dropdown == idx else idx
+                                clicked_slot = True
                                 break
+                        if not clicked_slot:
+                            open_controller_dropdown = None
                     if selected_seed_input and event.type == self.pg.KEYDOWN and not flow_state.use_random_seed:
                         if event.key == self.pg.K_BACKSPACE:
                             flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text[:-1])
@@ -128,12 +155,22 @@ class PygameApp:
                 screen.blit(font.render("New Game", True, (255, 255, 255)), (new_game_rect.x + 45, new_game_rect.y + 8))
                 screen.blit(font.render("Quit", True, (255, 255, 255)), (quit_rect.x + 85, quit_rect.y + 8))
             else:
-                screen.blit(small_font.render("Click slot to toggle controller: Human/Bot", True, (200, 200, 220)), (60, 85))
+                screen.blit(small_font.render("Click a player slot to open controller options", True, (200, 200, 220)), (60, 85))
+                controller_labels = {
+                    ControllerType.HUMAN: "Human",
+                    ControllerType.RANDOM_BOT: "Bot (random)",
+                }
+                open_slot_rect = None
                 for idx, rect in enumerate(slot_rects):
                     slot = flow_state.player_slots[idx]
-                    self.pg.draw.rect(screen, (60, 60, 90), rect)
-                    label = f"Player {slot.player_id}: {'Human' if slot.controller_type == ControllerType.HUMAN else 'Bot (random)'}"
+                    is_dropdown_open = open_controller_dropdown == idx
+                    if is_dropdown_open:
+                        open_slot_rect = rect
+                    self.pg.draw.rect(screen, (78, 86, 122) if is_dropdown_open else (60, 60, 90), rect)
+                    label = f"Player {slot.player_id}: {controller_labels.get(slot.controller_type, slot.controller_type.value)}"
                     screen.blit(small_font.render(label, True, (255, 255, 255)), (rect.x + 10, rect.y + 8))
+                    indicator = "▾" if is_dropdown_open else "▸"
+                    screen.blit(small_font.render(indicator, True, (220, 220, 235)), (rect.right - 24, rect.y + 7))
                 self.pg.draw.rect(screen, (80, 80, 120), seed_slider_rect, border_radius=18)
                 slider_mid_x = seed_slider_rect.centerx
                 self.pg.draw.line(
@@ -165,6 +202,24 @@ class PygameApp:
                 screen.blit(small_font.render("Start Game", True, (255, 255, 255)), (start_rect.x + 35, start_rect.y + 10))
                 if not flow_state.can_start_game():
                     screen.blit(small_font.render("Fixed seed must be a valid integer.", True, (220, 130, 130)), (60, 485))
+                if open_controller_dropdown is not None and open_slot_rect is not None:
+                    dropdown_options = list(ControllerType)
+                    for option_idx, controller_option in enumerate(dropdown_options):
+                        option_rect = self.pg.Rect(
+                            open_slot_rect.x,
+                            open_slot_rect.bottom + option_idx * open_slot_rect.height,
+                            open_slot_rect.width,
+                            open_slot_rect.height,
+                        )
+                        selected_option = flow_state.player_slots[open_controller_dropdown].controller_type
+                        is_selected = controller_option == selected_option
+                        self.pg.draw.rect(screen, (92, 120, 105) if is_selected else (52, 52, 78), option_rect)
+                        option_label = controller_labels.get(controller_option, controller_option.value)
+                        prefix = "✓ " if is_selected else "  "
+                        screen.blit(
+                            small_font.render(f"{prefix}{option_label}", True, (245, 245, 245)),
+                            (option_rect.x + 10, option_rect.y + 8),
+                        )
 
             self.pg.display.flip()
             clock.tick(30)
