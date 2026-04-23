@@ -184,3 +184,89 @@ def test_buying_dev_cards_is_deterministic_with_same_seed_and_actions() -> None:
         a = apply_action(a, BuyDevelopmentCard(player_id=1))
         b = apply_action(b, BuyDevelopmentCard(player_id=1))
     assert a == b
+
+
+def test_repeated_dev_draws_update_deck_and_cards_without_state_aliasing() -> None:
+    state = make_main_turn_state()
+    starting_deck = (
+        DevelopmentCardType.KNIGHT,
+        DevelopmentCardType.MONOPOLY,
+        DevelopmentCardType.VICTORY_POINT,
+    )
+    state = replace(
+        state,
+        dev_deck=starting_deck,
+        players={
+            1: replace(state.players[1], resources={resource: 3 for resource in ResourceType}),
+            2: state.players[2],
+        },
+    )
+
+    snapshots: list[GameState] = [state]
+    for _ in range(3):
+        snapshots.append(apply_action(snapshots[-1], BuyDevelopmentCard(player_id=1)))
+
+    assert snapshots[0].dev_deck == starting_deck
+    assert snapshots[1].dev_deck == starting_deck[1:]
+    assert snapshots[2].dev_deck == starting_deck[2:]
+    assert snapshots[3].dev_deck == ()
+    assert snapshots[0].players[1].dev_cards[DevelopmentCardType.KNIGHT] == 0
+    assert snapshots[3].players[1].dev_cards[DevelopmentCardType.KNIGHT] == 1
+    assert snapshots[3].players[1].dev_cards[DevelopmentCardType.MONOPOLY] == 1
+    assert snapshots[3].players[1].dev_cards[DevelopmentCardType.VICTORY_POINT] == 1
+
+
+def test_hidden_victory_points_count_for_win_but_not_public_observation_display() -> None:
+    state = make_main_turn_state()
+    state = replace(
+        state,
+        dev_deck=(DevelopmentCardType.VICTORY_POINT,),
+        players={
+            1: replace(
+                state.players[1],
+                victory_points=9,
+                resources={
+                    **state.players[1].resources,
+                    ResourceType.GRAIN: 1,
+                    ResourceType.WOOL: 1,
+                    ResourceType.ORE: 1,
+                },
+            ),
+            2: state.players[2],
+        },
+    )
+
+    after = apply_action(state, BuyDevelopmentCard(player_id=1))
+    p1_obs = get_observation(after, 1, debug=False)
+    p2_obs = get_observation(after, 2, debug=False)
+    p1_public = next(view for view in p1_obs.players_public if view.player_id == 1)
+    p2_public = next(view for view in p2_obs.players_public if view.player_id == 1)
+
+    assert after.winner == 1
+    assert p1_obs.own_total_victory_points == 10
+    assert p1_public.victory_points == 9
+    assert p2_public.victory_points == 9
+
+
+def test_opponent_observation_only_reveals_dev_card_counts_not_types() -> None:
+    state = make_main_turn_state()
+    p1_cards = {card_type: 0 for card_type in DevelopmentCardType}
+    p1_cards[DevelopmentCardType.KNIGHT] = 1
+    p1_cards[DevelopmentCardType.VICTORY_POINT] = 1
+    p2_cards = {card_type: 0 for card_type in DevelopmentCardType}
+    p2_cards[DevelopmentCardType.MONOPOLY] = 1
+    state = replace(
+        state,
+        players={
+            1: replace(state.players[1], dev_cards=p1_cards),
+            2: replace(state.players[2], dev_cards=p2_cards),
+        },
+    )
+
+    p2_obs = get_observation(state, 2, debug=False)
+    p1_public = next(view for view in p2_obs.players_public if view.player_id == 1)
+
+    assert p2_obs.own_dev_cards["MONOPOLY"] == 1
+    assert p2_obs.own_dev_cards["KNIGHT"] == 0
+    assert p2_obs.own_dev_cards["VICTORY_POINT"] == 0
+    assert p1_public.dev_card_count == 2

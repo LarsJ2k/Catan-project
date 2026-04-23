@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from catan.core.models.board import Board, Edge, Port, Tile
-from catan.core.models.enums import GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
+from catan.core.models.enums import DevelopmentCardType, GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, PlayerTradeState, SetupState, TurnState
 from catan.ui.pygame_ui.app import PygameApp
 
@@ -179,3 +179,31 @@ def test_describe_transition_player_trade_selection_does_not_log_rejection_on_su
     lines = app._describe_transition(before, after, "ChooseTradePartner(player_id=1, partner_player_id=2)")
     assert "P1 traded 1 Brick for 1 Ore with P2" in lines
     assert "P1 rejected all trade responses" not in lines
+
+
+def test_describe_transition_dev_card_purchase_does_not_leak_card_type() -> None:
+    app = PygameApp(DummyPygame())
+    before = make_state()
+    before = replace(
+        before,
+        turn=replace(before.turn, step=TurnStep.ACTIONS),
+        dev_deck=(DevelopmentCardType.VICTORY_POINT,),
+        players={
+            1: replace(before.players[1], dev_cards={**before.players[1].dev_cards}),
+            2: before.players[2],
+        },
+    )
+    p1_after_cards = {**before.players[1].dev_cards, DevelopmentCardType.VICTORY_POINT: 1}
+    after = replace(
+        before,
+        dev_deck=(),
+        players={
+            1: replace(before.players[1], dev_cards=p1_after_cards),
+            2: before.players[2],
+        },
+    )
+
+    lines = app._describe_transition(before, after, "BuyDevelopmentCard(player_id=1)")
+
+    assert "P1 bought a development card" in lines
+    assert not any("victory" in line.lower() for line in lines)
