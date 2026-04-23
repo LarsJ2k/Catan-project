@@ -144,3 +144,15 @@ def test_tournament_setup_requires_valid_selection() -> None:
     assert config is not None
     assert config.fixed_lineup is not None
     assert len(config.fixed_lineup) == 4
+
+
+def test_tournament_setup_add_remove_bot_list_flow() -> None:
+    state = TournamentSetupState()
+    state = state.with_selected_bot(ControllerType.RANDOM_BOT.value).add_selected_bot()
+    state = state.with_selected_bot(ControllerType.HEURISTIC_BOT.value).add_selected_bot()
+    duplicate_attempt = state.with_selected_bot(ControllerType.RANDOM_BOT.value).add_selected_bot()
+
+    assert duplicate_attempt.selected_bots == state.selected_bots
+
+    removed = state.remove_selected_bot_at(0)
+    assert removed.selected_bots == (ControllerType.HEURISTIC_BOT.value,)
