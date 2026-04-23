@@ -1082,11 +1082,18 @@ class PygameApp:
             return {"fallback_message": "No bot explanation data available"}
         chosen = payload.get("chosen_action")
         chosen_line = self._action_label(chosen, state) if chosen is not None else None
-        if payload.get("kind") == "heuristic":
+        top_candidates = payload.get("top_candidates")
+        if isinstance(top_candidates, list):
             formatted: list[str] = []
-            for action, score in payload.get("top_candidates", [])[:2]:
+            for candidate in top_candidates[:3]:
+                if not isinstance(candidate, tuple) or len(candidate) != 2:
+                    continue
+                action, score = candidate
+                if not isinstance(score, (int, float)):
+                    continue
                 formatted.append(f"{self._action_label(action, state):<24} {score:+.2f}")
-            return {"chosen_line": chosen_line, "candidate_lines": formatted}
+            if formatted:
+                return {"chosen_line": chosen_line, "candidate_lines": formatted}
         return {
             "chosen_line": chosen_line,
             "fallback_message": str(payload.get("message", f"Random choice from {payload.get('legal_action_count', '?')} legal actions")),
