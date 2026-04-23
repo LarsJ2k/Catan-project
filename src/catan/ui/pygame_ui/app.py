@@ -42,7 +42,7 @@ from catan.runners.game_setup import (
 )
 from catan.runners.local_pygame_runner import LocalPygameRunner
 from catan.runners.tournament import HeadlessTournamentRunner, TournamentFormat, export_tournament_result
-from catan.controllers.bot_catalog import list_bot_specs
+from catan.controllers.bot_catalog import create_custom_bot_definition, get_bot_definition, list_bot_definitions
 
 from .input_mapper import HoverTarget, PygameInputMapper
 from .layout import build_circular_layout
@@ -72,13 +72,20 @@ class PygameApp:
         tournament_summary_lines: list[str] = []
         selected_seed_input = False
         list_scroll_offset = 0
+        selected_lab_bot_id: str | None = None
+        create_form_open = False
+        new_bot_name = ""
+        new_bot_description = ""
+        new_bot_parameters: dict[str, str] = {}
+        bot_lab_error: str | None = None
 
         while True:
             width, height = screen.get_size()
             title_rect = self.pg.Rect(40, 20, width - 80, 50)
             new_game_rect = self.pg.Rect(width // 2 - 120, height // 2 - 20, 240, 48)
             tournament_rect = self.pg.Rect(width // 2 - 120, height // 2 + 44, 240, 48)
-            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 108, 240, 48)
+            bot_lab_rect = self.pg.Rect(width // 2 - 120, height // 2 + 108, 240, 48)
+            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 172, 240, 48)
             back_rect = self.pg.Rect(40, height - 70, 160, 42)
             start_rect = self.pg.Rect(width - 220, height - 70, 180, 42)
             seed_slider_rect = self.pg.Rect(60, height - 230, 350, 36)
@@ -125,6 +132,10 @@ class PygameApp:
                             flow_state = flow_state.go_to_setup()
                         elif tournament_rect.collidepoint(event.pos):
                             flow_state = GameSetupState(screen=AppScreen.TOURNAMENT_SETUP)
+                        elif bot_lab_rect.collidepoint(event.pos):
+                            flow_state = GameSetupState(screen=AppScreen.BOT_LAB)
+                            bots = list_bot_definitions()
+                            selected_lab_bot_id = bots[0].bot_id if bots else None
                         elif quit_rect.collidepoint(event.pos):
                             self.pg.quit()
                             return None
@@ -176,7 +187,7 @@ class PygameApp:
                         elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not flow_state.fixed_seed_text)):
                             flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text + event.unicode)
                 elif flow_state.screen == AppScreen.TOURNAMENT_SETUP:
-                    bot_specs = list_bot_specs()
+                    bot_specs = list_bot_definitions()
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                         if back_rect.collidepoint(event.pos):
                             flow_state = flow_state.back_to_menu()
@@ -216,17 +227,79 @@ class PygameApp:
                         elif self.pg.K_a <= event.key <= self.pg.K_z:
                             index = event.key - self.pg.K_a
                             if 0 <= index < len(bot_specs):
-                                tournament_state = tournament_state.toggle_bot(bot_specs[index].controller_type)
+                                tournament_state = tournament_state.toggle_bot(bot_specs[index].bot_id)
+                elif flow_state.screen == AppScreen.BOT_LAB:
+                    bot_definitions = list_bot_definitions()
+                    list_rect = self.pg.Rect(40, 90, width // 3, height - 180)
+                    new_from_selected_rect = self.pg.Rect(width // 3 + 80, height - 120, 340, 42)
+                    save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
+                    if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                        if back_rect.collidepoint(event.pos):
+                            flow_state = flow_state.back_to_menu()
+                            create_form_open = False
+                            bot_lab_error = None
+                            continue
+                        if list_rect.collidepoint(event.pos):
+                            row = (event.pos[1] - list_rect.y) // 38
+                            if 0 <= row < len(bot_definitions):
+                                selected_lab_bot_id = bot_definitions[row].bot_id
+                            continue
+                        if new_from_selected_rect.collidepoint(event.pos) and selected_lab_bot_id is not None:
+                            base = get_bot_definition(selected_lab_bot_id)
+                            if base is not None:
+                                create_form_open = True
+                                new_bot_name = f"{base.display_name} Copy"
+                                new_bot_description = base.description
+                                new_bot_parameters = {key: str(value) for key, value in base.parameters.items()}
+                                bot_lab_error = None
+                            continue
+                        if create_form_open and save_rect.collidepoint(event.pos):
+                            try:
+                                parsed_params: dict[str, float | int | str | bool] = {}
+                                for key, value in new_bot_parameters.items():
+                                    value_text = value.strip()
+                                    if key == "seed":
+                                        parsed_params[key] = "" if value_text == "" else int(value_text)
+                                    elif key == "delay_seconds":
+                                        parsed_params[key] = float(value_text or "1.2")
+                                    else:
+                                        parsed_params[key] = value
+                                create_custom_bot_definition(
+                                    name=new_bot_name,
+                                    base_bot_id=selected_lab_bot_id or "",
+                                    description=new_bot_description,
+                                    parameters=parsed_params,
+                                )
+                                create_form_open = False
+                                bot_lab_error = None
+                            except ValueError as exc:
+                                bot_lab_error = str(exc)
+                    if create_form_open and event.type == self.pg.KEYDOWN:
+                        if event.key == self.pg.K_BACKSPACE:
+                            new_bot_name = new_bot_name[:-1]
+                        elif event.key == self.pg.K_TAB:
+                            continue
+                        elif event.unicode and event.unicode.isprintable():
+                            new_bot_name += event.unicode
 
             screen.fill((20, 20, 28))
-            title = "Main Menu" if flow_state.screen == AppScreen.MAIN_MENU else ("Game Setup" if flow_state.screen == AppScreen.GAME_SETUP else "Tournament / Simulation")
+            if flow_state.screen == AppScreen.MAIN_MENU:
+                title = "Main Menu"
+            elif flow_state.screen == AppScreen.GAME_SETUP:
+                title = "Game Setup"
+            elif flow_state.screen == AppScreen.TOURNAMENT_SETUP:
+                title = "Tournament / Simulation"
+            else:
+                title = "Bot Lab v1"
             screen.blit(font.render(title, True, (240, 240, 240)), (title_rect.x, title_rect.y))
             if flow_state.screen == AppScreen.MAIN_MENU:
                 self.pg.draw.rect(screen, (70, 120, 70), new_game_rect)
                 self.pg.draw.rect(screen, (70, 90, 130), tournament_rect)
+                self.pg.draw.rect(screen, (100, 86, 150), bot_lab_rect)
                 self.pg.draw.rect(screen, (120, 70, 70), quit_rect)
                 screen.blit(font.render("New Game", True, (255, 255, 255)), (new_game_rect.x + 45, new_game_rect.y + 8))
                 screen.blit(small_font.render("Tournament / Simulation", True, (255, 255, 255)), (tournament_rect.x + 15, tournament_rect.y + 12))
+                screen.blit(small_font.render("Bot Lab v1", True, (255, 255, 255)), (bot_lab_rect.x + 70, bot_lab_rect.y + 12))
                 screen.blit(font.render("Quit", True, (255, 255, 255)), (quit_rect.x + 85, quit_rect.y + 8))
             elif flow_state.screen == AppScreen.GAME_SETUP:
                 screen.blit(small_font.render("Configured Players", True, (220, 220, 235)), (left_slots_x, 85))
@@ -297,39 +370,80 @@ class PygameApp:
                     msg = "Add at least 2 players and use a valid fixed seed."
                     screen.blit(small_font.render(msg, True, (220, 130, 130)), (60, height - 125))
             else:
-                bot_specs = list_bot_specs()
-                lines = [
-                    "Controls: [A..] toggle bots, [1] fixed lineup, [2] round robin, [R] seat rotation",
-                    "[J] json export, [C] csv export, [-]/[=] seed blocks, Run Tournament button to execute.",
-                    f"Format: {tournament_state.format}",
-                    f"Seed blocks: {tournament_state.seed_blocks_text}",
-                    f"Seat rotation: {'on' if tournament_state.seat_rotation_enabled else 'off'}",
-                    f"Export JSON: {'on' if tournament_state.export_json else 'off'}",
-                    f"Export CSV: {'on' if tournament_state.export_csv else 'off'}",
-                    "Selected bots:",
-                ]
-                y = 90
-                for line in lines:
-                    screen.blit(small_font.render(line, True, (220, 220, 235)), (60, y))
-                    y += 30
-                for idx, spec in enumerate(bot_specs):
-                    selected = spec.controller_type in tournament_state.selected_bots
-                    prefix = chr(ord("A") + idx)
-                    color = (150, 220, 170) if selected else (180, 180, 200)
-                    screen.blit(small_font.render(f"[{prefix}] {spec.label}", True, color), (80, y))
-                    y += 28
-                start_color = (70, 120, 70) if tournament_state.to_tournament_config() is not None else (80, 80, 80)
-                self.pg.draw.rect(screen, (90, 90, 90), back_rect)
-                self.pg.draw.rect(screen, start_color, start_rect)
-                screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
-                screen.blit(small_font.render("Run Tournament", True, (255, 255, 255)), (start_rect.x + 20, start_rect.y + 10))
-                if tournament_summary_lines:
-                    y = max(y + 20, height // 2)
-                    screen.blit(small_font.render("Summary:", True, (240, 240, 240)), (60, y))
-                    y += 30
-                    for line in tournament_summary_lines[:10]:
-                        screen.blit(small_font.render(line, True, (200, 220, 200)), (60, y))
-                        y += 24
+                if flow_state.screen == AppScreen.BOT_LAB:
+                    bot_definitions = list_bot_definitions()
+                    self.pg.draw.rect(screen, (35, 35, 52), (40, 90, width // 3, height - 180), border_radius=8)
+                    y = 100
+                    for definition in bot_definitions:
+                        is_selected = definition.bot_id == selected_lab_bot_id
+                        row_rect = self.pg.Rect(50, y, width // 3 - 20, 34)
+                        self.pg.draw.rect(screen, (82, 110, 98) if is_selected else (58, 58, 86), row_rect, border_radius=6)
+                        tag = "built-in" if definition.is_builtin else "custom"
+                        screen.blit(small_font.render(f"{definition.display_name} ({tag})", True, (248, 248, 248)), (58, y + 6))
+                        y += 38
+                    selected_definition = get_bot_definition(selected_lab_bot_id) if selected_lab_bot_id else None
+                    details_x = width // 3 + 70
+                    if selected_definition is not None:
+                        details = [
+                            f"Name: {selected_definition.display_name}",
+                            f"Base type: {selected_definition.base_controller_type.value}",
+                            f"Description: {selected_definition.description or '(none)'}",
+                            "Parameters:",
+                        ] + [f"  - {key}: {value}" for key, value in selected_definition.parameters.items()]
+                        row_y = 110
+                        for line in details:
+                            screen.blit(small_font.render(line, True, (220, 220, 235)), (details_x, row_y))
+                            row_y += 30
+                    new_from_selected_rect = self.pg.Rect(details_x, height - 120, 340, 42)
+                    self.pg.draw.rect(screen, (70, 90, 130), new_from_selected_rect, border_radius=8)
+                    screen.blit(small_font.render("New Bot (based on selected bot)", True, (255, 255, 255)), (details_x + 12, height - 110))
+                    if create_form_open:
+                        form_rect = self.pg.Rect(details_x, height - 280, width - details_x - 40, 140)
+                        self.pg.draw.rect(screen, (36, 48, 64), form_rect, border_radius=8)
+                        screen.blit(small_font.render(f"New name: {new_bot_name}", True, (240, 240, 240)), (details_x + 10, height - 260))
+                        screen.blit(small_font.render(f"Description: {new_bot_description}", True, (240, 240, 240)), (details_x + 10, height - 230))
+                        screen.blit(small_font.render("Name editable with keyboard. Existing bots remain read-only.", True, (190, 210, 230)), (details_x + 10, height - 200))
+                        save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
+                        self.pg.draw.rect(screen, (70, 120, 70), save_rect, border_radius=8)
+                        screen.blit(small_font.render("Save New Bot", True, (255, 255, 255)), (width - 200, height - 110))
+                    if bot_lab_error:
+                        screen.blit(small_font.render(bot_lab_error, True, (240, 140, 140)), (details_x, height - 145))
+                    self.pg.draw.rect(screen, (90, 90, 90), back_rect)
+                    screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
+                else:
+                    bot_specs = list_bot_definitions()
+                    lines = [
+                        "Controls: [A..] toggle bots, [1] fixed lineup, [2] round robin, [R] seat rotation",
+                        "[J] json export, [C] csv export, [-]/[=] seed blocks, Run Tournament button to execute.",
+                        f"Format: {tournament_state.format}",
+                        f"Seed blocks: {tournament_state.seed_blocks_text}",
+                        f"Seat rotation: {'on' if tournament_state.seat_rotation_enabled else 'off'}",
+                        f"Export JSON: {'on' if tournament_state.export_json else 'off'}",
+                        f"Export CSV: {'on' if tournament_state.export_csv else 'off'}",
+                        "Selected bots:",
+                    ]
+                    y = 90
+                    for line in lines:
+                        screen.blit(small_font.render(line, True, (220, 220, 235)), (60, y))
+                        y += 30
+                    for idx, spec in enumerate(bot_specs):
+                        selected = spec.bot_id in tournament_state.selected_bots
+                        prefix = chr(ord("A") + idx)
+                        color = (150, 220, 170) if selected else (180, 180, 200)
+                        screen.blit(small_font.render(f"[{prefix}] {spec.display_name}", True, color), (80, y))
+                        y += 28
+                    start_color = (70, 120, 70) if tournament_state.to_tournament_config() is not None else (80, 80, 80)
+                    self.pg.draw.rect(screen, (90, 90, 90), back_rect)
+                    self.pg.draw.rect(screen, start_color, start_rect)
+                    screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
+                    screen.blit(small_font.render("Run Tournament", True, (255, 255, 255)), (start_rect.x + 20, start_rect.y + 10))
+                    if tournament_summary_lines:
+                        y = max(y + 20, height // 2)
+                        screen.blit(small_font.render("Summary:", True, (240, 240, 240)), (60, y))
+                        y += 30
+                        for line in tournament_summary_lines[:10]:
+                            screen.blit(small_font.render(line, True, (200, 220, 200)), (60, y))
+                            y += 24
 
             self.pg.display.flip()
             clock.tick(30)
