@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from itertools import combinations
-import csv
 import json
 from pathlib import Path
 from statistics import mean
-from typing import Callable
+from typing import Callable, Iterable
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
@@ -366,8 +367,8 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{opts.output_prefix}_{result.config.format.value}_{result.config.base_seed}_{result.config.seed_blocks}"
     json_path = out_dir / f"{stem}.json" if opts.write_json else None
-    match_csv_path = out_dir / f"{stem}_match_results.csv" if opts.write_csv else None
-    summary_csv_path = out_dir / f"{stem}_tournament_summary.csv" if opts.write_csv else None
+    match_excel_path = out_dir / f"{stem}_match_results.xlsx" if opts.write_csv else None
+    summary_excel_path = out_dir / f"{stem}_tournament_summary.xlsx" if opts.write_csv else None
 
     if json_path is not None:
         payload = {
@@ -443,21 +444,23 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
         }
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    if match_csv_path is not None:
-        with match_csv_path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(_match_csv_headers())
-            for match in result.matches:
-                writer.writerow(_match_csv_row(match))
+    if match_excel_path is not None:
+        _write_single_sheet_xlsx(
+            match_excel_path,
+            "match_results",
+            _match_csv_headers(),
+            (_match_csv_row(match) for match in result.matches),
+        )
 
-    if summary_csv_path is not None:
-        with summary_csv_path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(_summary_csv_headers())
-            for bot_id in sorted(result.aggregates):
-                writer.writerow(_summary_csv_row(result.aggregates[bot_id]))
+    if summary_excel_path is not None:
+        _write_single_sheet_xlsx(
+            summary_excel_path,
+            "tournament_summary",
+            _summary_csv_headers(),
+            (_summary_csv_row(result.aggregates[bot_id]) for bot_id in sorted(result.aggregates)),
+        )
 
-    return json_path, match_csv_path
+    return json_path, match_excel_path
 
 
 def _match_csv_headers() -> list[str]:
@@ -597,6 +600,89 @@ def _summary_csv_row(aggregate: BotAggregate) -> list[str | int | float]:
         seat_data = aggregate.performance_by_seat.get(seat, {"games": 0.0, "wins": 0.0, "win_rate": 0.0})
         row.extend([seat_data["games"], seat_data["wins"], seat_data["win_rate"]])
     return row
+
+
+def _write_single_sheet_xlsx(
+    path: Path,
+    sheet_name: str,
+    headers: list[str],
+    rows: Iterable[list[str | int | float | bool]],
+) -> None:
+    all_rows = [headers, *list(rows)]
+    sheet_xml = _sheet_xml(all_rows)
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        "<sheets>"
+        f'<sheet name="{escape(sheet_name)}" sheetId="1" r:id="rId1"/>'
+        "</sheets>"
+        "</workbook>"
+    )
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            "</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/>'
+            "</Relationships>",
+        )
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet1.xml"/>'
+            "</Relationships>",
+        )
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+
+def _sheet_xml(rows: list[list[str | int | float | bool]]) -> str:
+    body_rows: list[str] = []
+    for row_index, row in enumerate(rows, start=1):
+        cells: list[str] = []
+        for col_index, value in enumerate(row, start=1):
+            cell_ref = f"{_excel_column_name(col_index)}{row_index}"
+            if isinstance(value, bool):
+                cell = f'<c r="{cell_ref}" t="b"><v>{1 if value else 0}</v></c>'
+            elif isinstance(value, (int, float)):
+                cell = f'<c r="{cell_ref}"><v>{value}</v></c>'
+            else:
+                text = escape(str(value))
+                cell = f'<c r="{cell_ref}" t="inlineStr"><is><t>{text}</t></is></c>'
+            cells.append(cell)
+        body_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"<sheetData>{''.join(body_rows)}</sheetData>"
+        "</worksheet>"
+    )
+
+
+def _excel_column_name(index: int) -> str:
+    letters = []
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters))
 
 
 def _to_launch_config(seat_order: tuple[str, ...], seed: int) -> GameLaunchConfig:
