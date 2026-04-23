@@ -355,6 +355,8 @@ class PygameApp:
                     "mode": "monopoly",
                     "resource_rects": {},
                 }
+            effective_build_mode = self._effective_build_mode(state, build_mode)
+
             drawn = renderer.render(
                 screen,
                 state,
@@ -366,7 +368,7 @@ class PygameApp:
                 hover,
                 last_applied_action,
                 self.fullscreen,
-                build_mode=build_mode,
+                build_mode=effective_build_mode,
                 trade_ui=trade_ui,
                 discard_ui=discard_ui,
                 dev_card_ui=dev_card_ui,
@@ -481,7 +483,7 @@ class PygameApp:
                         legal,
                         state,
                         active_player,
-                        build_mode,
+                        effective_build_mode,
                         trade_window_open,
                     )
                     if clicked_action is not None:
@@ -563,7 +565,7 @@ class PygameApp:
                     state=state,
                 )
                 if mapped.action is not None:
-                    if not self._is_board_action_allowed(mapped.action, build_mode):
+                    if not self._is_board_action_allowed(mapped.action, effective_build_mode):
                         continue
                     selected_action_text = self._action_label(mapped.action, state) if spectator_mode else str(mapped.action)
                     active_controller.submit_action_intent(mapped.action)
@@ -965,6 +967,11 @@ class PygameApp:
         radius = int(min(board_width, board_height) * 0.42)
         return center, max(radius, 120)
 
+    def _effective_build_mode(self, state: GameState, build_mode: str | None) -> str | None:
+        if state.turn is not None and state.turn.step == TurnStep.ROAD_BUILDING:
+            return "road"
+        return build_mode
+
     def _is_board_action_allowed(self, action: object, build_mode: str | None) -> bool:
         if isinstance(action, BuildRoad):
             return build_mode == "road"
@@ -1171,6 +1178,13 @@ class PygameApp:
     def _describe_transition(self, before: GameState, after: GameState, action_text: str) -> list[str]:
         lines: list[str] = [f"applied {action_text}"]
         acting_player = before.turn.current_player if before.turn is not None else None
+        suppress_yop_detail = (
+            acting_player is not None
+            and before.turn is not None
+            and after.turn is not None
+            and before.turn.step == TurnStep.YEAR_OF_PLENTY
+            and after.turn.step == TurnStep.ACTIONS
+        )
 
         before_roll = before.turn.last_roll if before.turn else None
         after_roll = after.turn.last_roll if after.turn else None
@@ -1190,7 +1204,8 @@ class PygameApp:
                 after_amount = after.players[pid].resources.get(resource, 0)
                 delta = after_amount - before_amount
                 if delta > 0:
-                    lines.append(f"P{pid} received {delta} {self._resource_name(resource)}")
+                    if not (suppress_yop_detail and pid == acting_player):
+                        lines.append(f"P{pid} received {delta} {self._resource_name(resource)}")
                     if before.turn and before.turn.step in (TurnStep.ROBBER_MOVE, TurnStep.ROBBER_STEAL) and delta == 1:
                         victims = [other for other in sorted(after.players.keys()) if other != pid and before.players[other].resources.get(resource, 0) - after.players[other].resources.get(resource, 0) == 1]
                         if victims:
