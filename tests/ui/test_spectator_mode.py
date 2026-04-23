@@ -31,6 +31,11 @@ class DummyPygame:
     pass
 
 
+class DummySurface:
+    def get_width(self) -> int:
+        return 20
+
+
 def make_state() -> GameState:
     board = Board(
         nodes=(0, 1, 2),
@@ -150,7 +155,7 @@ def test_spectator_dashboard_shows_all_players_and_active_outline() -> None:
 
     class DummyFont:
         def render(self, *_args, **_kwargs):
-            return object()
+            return DummySurface()
 
     class DummyScreen:
         def blit(self, *_args, **_kwargs):
@@ -181,4 +186,20 @@ def test_spectator_dashboard_shows_all_players_and_active_outline() -> None:
     highlighted = [call for call in rect_calls if call[0] == renderer._player_color(2) and call[1] == 3]
     assert len(highlighted) >= 1
     drawn_dev_cards = [call for call in rect_calls if call[0] == (78, 88, 112)]
-    assert len(drawn_dev_cards) == 2
+    assert len(drawn_dev_cards) == 20
+
+
+def test_scoreboard_vp_text_can_reveal_hidden_vp_for_all_players_in_spectator_mode() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = make_state()
+    state.players[1].victory_points = 4
+    state.players[1].dev_cards[DevelopmentCardType.VICTORY_POINT] = 2
+
+    vp_text = renderer._scoreboard_vp_text(
+        state,
+        player_id=1,
+        reveal_current_hidden_vp=False,
+        reveal_all_hidden_vp=True,
+    )
+
+    assert vp_text == "VP 4(6)"
