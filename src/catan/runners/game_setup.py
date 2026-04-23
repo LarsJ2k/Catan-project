@@ -8,6 +8,7 @@ from random import randint
 class AppScreen(str, Enum):
     MAIN_MENU = "main_menu"
     GAME_SETUP = "game_setup"
+    TOURNAMENT_SETUP = "tournament_setup"
 
 
 class ControllerType(str, Enum):
@@ -176,3 +177,132 @@ class GameSetupState:
             return int(text)
         except ValueError:
             return None
+
+
+@dataclass(frozen=True)
+class TournamentSetupState:
+    selected_bots: tuple[ControllerType, ...] = ()
+    format: str = "fixed_lineup_batch"
+    seed_blocks_text: str = "10"
+    base_seed_text: str = "1"
+    seat_rotation_enabled: bool = True
+    export_json: bool = True
+    export_csv: bool = True
+
+    def toggle_bot(self, controller_type: ControllerType) -> TournamentSetupState:
+        if controller_type == ControllerType.HUMAN:
+            return self
+        if controller_type in self.selected_bots:
+            return TournamentSetupState(
+                selected_bots=tuple(bot for bot in self.selected_bots if bot != controller_type),
+                format=self.format,
+                seed_blocks_text=self.seed_blocks_text,
+                base_seed_text=self.base_seed_text,
+                seat_rotation_enabled=self.seat_rotation_enabled,
+                export_json=self.export_json,
+                export_csv=self.export_csv,
+            )
+        return TournamentSetupState(
+            selected_bots=self.selected_bots + (controller_type,),
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def with_format(self, format_value: str) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            format=format_value,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def with_seed_blocks_text(self, value: str) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            format=self.format,
+            seed_blocks_text=value,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def with_base_seed_text(self, value: str) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=value,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def with_seat_rotation_enabled(self, enabled: bool) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+        )
+
+    def with_export_json(self, enabled: bool) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=enabled,
+            export_csv=self.export_csv,
+        )
+
+    def with_export_csv(self, enabled: bool) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=enabled,
+        )
+
+    def to_tournament_config(self):
+        from catan.runners.tournament import TournamentConfig, TournamentFormat, TournamentOutputOptions
+
+        if self.format == TournamentFormat.FIXED_LINEUP_BATCH.value and len(self.selected_bots) < 1:
+            return None
+        if self.format == TournamentFormat.ROUND_ROBIN.value and len(self.selected_bots) < 4:
+            return None
+        try:
+            seed_blocks = int(self.seed_blocks_text)
+            base_seed = int(self.base_seed_text)
+        except ValueError:
+            return None
+        if seed_blocks <= 0:
+            return None
+        format_enum = TournamentFormat(self.format)
+        fixed_lineup: tuple[ControllerType, ...] | None = None
+        if format_enum == TournamentFormat.FIXED_LINEUP_BATCH:
+            repeated = [self.selected_bots[idx % len(self.selected_bots)] for idx in range(4)]
+            fixed_lineup = tuple(repeated)
+        return TournamentConfig(
+            selected_bots=tuple(self.selected_bots),
+            format=format_enum,
+            seed_blocks=seed_blocks,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            base_seed=base_seed,
+            fixed_lineup=fixed_lineup,
+            output_options=TournamentOutputOptions(write_json=self.export_json, write_csv=self.export_csv),
+        )
