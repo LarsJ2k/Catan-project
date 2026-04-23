@@ -320,6 +320,8 @@ class PygameRenderer:
         for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
             x = panel_x + 10 + idx * (card_width + card_gap)
             self._draw_resource_card(screen, x, y, card_width, 72, resource, bank_counts[resource], compact=True)
+        dev_card_x = panel_x + 10 + 5 * (card_width + card_gap)
+        self._draw_dev_deck_remaining_card(screen, dev_card_x, y, card_width, 72, len(state.dev_deck))
 
         y += 84
         screen.blit(self.font.render("Players", True, (238, 238, 238)), (panel_x + 10, y))
@@ -340,8 +342,6 @@ class PygameRenderer:
             screen.blit(self.small_font.render(f"R {p.longest_road_length}", True, road_color), (row.x + 228, row.y + 4))
             screen.blit(self.small_font.render(f"Dev {dev_count}", True, (220, 220, 220)), (row.right - 54, row.y + 4))
             y += 28
-        screen.blit(self.small_font.render(f"Dev deck remaining: {len(state.dev_deck)}", True, (226, 226, 226)), (panel_x + 10, y + 4))
-
         roll_rect = self.pg.Rect(0, 0, 0, 0)
         end_rect = self.pg.Rect(0, 0, 0, 0)
         action_button_rects = {
@@ -774,6 +774,17 @@ class PygameRenderer:
         font = self.small_font if compact else self.font
         text_surface = font.render(text, True, (24, 24, 24))
         screen.blit(text_surface, (x + 8, y + (9 if compact else 14)))
+        count_rect = self.pg.Rect(x + width - 24, y + 4, 20, 18)
+        self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
+        screen.blit(self.small_font.render(str(amount), True, (30, 30, 30)), (count_rect.x + 6, count_rect.y + 2))
+
+    def _draw_dev_deck_remaining_card(self, screen, x: int, y: int, width: int, height: int, amount: int) -> None:
+        self.pg.draw.rect(screen, (125, 88, 178), (x, y, width, height), border_radius=6)
+        self.pg.draw.rect(screen, (32, 32, 32), (x, y, width, height), width=2, border_radius=6)
+        qmark_surface = self.font.render("?", True, (245, 245, 245))
+        screen.blit(qmark_surface, (x + (width - qmark_surface.get_width()) // 2, y + 20))
+        dev_surface = self.small_font.render("dev", True, (245, 245, 245))
+        screen.blit(dev_surface, (x + (width - dev_surface.get_width()) // 2, y + height - 20))
         count_rect = self.pg.Rect(x + width - 24, y + 4, 20, 18)
         self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
         screen.blit(self.small_font.render(str(amount), True, (30, 30, 30)), (count_rect.x + 6, count_rect.y + 2))
