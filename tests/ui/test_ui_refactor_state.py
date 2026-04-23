@@ -227,6 +227,27 @@ def test_hand_view_player_hides_bot_hand_and_shows_previous_player() -> None:
     assert hand_player == 1
 
 
+def test_hand_view_player_shows_single_human_in_1v3_even_when_not_adjacent() -> None:
+    app = PygameApp(DummyPygame())
+    state = make_state()
+    players = {
+        1: state.players[1],
+        2: state.players[2],
+        3: replace(state.players[2], player_id=3),
+        4: replace(state.players[2], player_id=4),
+    }
+    state = replace(
+        state,
+        players=players,
+        setup=SetupState(order=[1, 2, 3, 4]),
+        turn=TurnState(current_player=3, step=TurnStep.ACTIONS),
+    )
+
+    hand_player = app._hand_view_player(state, 3, {1: HumanController(), 2: object(), 3: object(), 4: object()})
+
+    assert hand_player == 1
+
+
 def test_clicking_dice_button_only_rolls() -> None:
     app = PygameApp(DummyPygame())
     state = make_state()
