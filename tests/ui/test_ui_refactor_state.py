@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, BuyDevelopmentCard, DiscardResources, EndTurn, RollDice
+from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, BuyDevelopmentCard, DiscardResources, EndTurn, PlayKnightCard, RollDice
 from catan.core.models.board import Board, Edge, Tile
-from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
+from catan.core.models.enums import DevelopmentCardType, GamePhase, ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
 from catan.ui.pygame_ui.app import PygameApp
 from catan.ui.pygame_ui.renderer import PygameRenderer, primary_turn_button_state
@@ -337,3 +337,13 @@ def test_sync_discard_selection_clears_when_discard_phase_ends() -> None:
 
     assert current_player is None
     assert all(amount == 0 for amount in selection.values())
+
+
+def test_dev_card_click_action_only_returns_legal_knight_action() -> None:
+    app = PygameApp(DummyPygame())
+    knight_action = PlayKnightCard(player_id=1)
+    rects = {DevelopmentCardType.KNIGHT: DummyRect(True)}
+
+    assert app._dev_card_click_action((0, 0), rects, [knight_action]) == knight_action
+    assert app._dev_card_click_action((0, 0), rects, []) is None
+    assert app._dev_card_click_action((0, 0), {DevelopmentCardType.KNIGHT: DummyRect(False)}, [knight_action]) is None

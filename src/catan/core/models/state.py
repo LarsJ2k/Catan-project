@@ -17,6 +17,9 @@ class PlayerState:
     victory_points: int = 0
     setup_settlements_placed: int = 0
     dev_cards: dict[DevelopmentCardType, int] = field(default_factory=lambda: {card_type: 0 for card_type in DevelopmentCardType})
+    new_dev_cards: dict[DevelopmentCardType, int] = field(default_factory=lambda: {card_type: 0 for card_type in DevelopmentCardType})
+    knights_played: int = 0
+    longest_road_length: int = 0
 
 
 @dataclass
@@ -69,6 +72,9 @@ class GameState:
     discard_requirements: dict[PlayerId, int] = field(default_factory=dict)
     player_trade: PlayerTradeState | None = None
     dev_deck: tuple[DevelopmentCardType, ...] = ()
+    largest_army_holder: PlayerId | None = None
+    longest_road_holder: PlayerId | None = None
+    robber_source: str | None = None
 
 
 @dataclass(frozen=True)
