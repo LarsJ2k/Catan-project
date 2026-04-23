@@ -29,6 +29,8 @@ class HumanController:
         if candidate in set(legal_actions):
             return True
         if isinstance(candidate, DiscardResources):
+            if not candidate.resources:
+                return False
             return any(isinstance(action, DiscardResources) for action in legal_actions)
         if isinstance(candidate, ProposePlayerTrade):
             return True

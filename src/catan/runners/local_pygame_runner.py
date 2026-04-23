@@ -17,4 +17,7 @@ class LocalPygameRunner:
             action = controller.choose_action(observation, legal_actions)
         except NoActionAvailableYet:
             return state
-        return apply_action(state, action)
+        try:
+            return apply_action(state, action)
+        except ValueError:
+            return state
