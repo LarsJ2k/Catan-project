@@ -110,6 +110,37 @@ class PlayKnightCard(ActionBase):
     pass
 
 
+@dataclass(frozen=True)
+class PlayRoadBuildingCard(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
+class FinishRoadBuildingCard(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
+class PlayYearOfPlentyCard(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
+class ChooseYearOfPlentyResources(ActionBase):
+    first_resource: ResourceType
+    second_resource: ResourceType
+
+
+@dataclass(frozen=True)
+class PlayMonopolyCard(ActionBase):
+    pass
+
+
+@dataclass(frozen=True)
+class ChooseMonopolyResource(ActionBase):
+    resource: ResourceType
+
+
 Action = (
     PlaceSetupSettlement
     | PlaceSetupRoad
@@ -129,5 +160,11 @@ Action = (
     | RejectTradeResponses
     | BuyDevelopmentCard
     | PlayKnightCard
+    | PlayRoadBuildingCard
+    | FinishRoadBuildingCard
+    | PlayYearOfPlentyCard
+    | ChooseYearOfPlentyResources
+    | PlayMonopolyCard
+    | ChooseMonopolyResource
     | EndTurn
 )

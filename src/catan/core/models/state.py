@@ -58,6 +58,13 @@ class PlayerTradeState:
     phase: PlayerTradePhase
 
 
+@dataclass(frozen=True)
+class DevCardFlowState:
+    card_type: DevelopmentCardType
+    roads_remaining: int = 0
+    roads_placed: int = 0
+
+
 @dataclass
 class GameState:
     board: Board
@@ -75,6 +82,7 @@ class GameState:
     largest_army_holder: PlayerId | None = None
     longest_road_holder: PlayerId | None = None
     robber_source: str | None = None
+    dev_card_flow: DevCardFlowState | None = None
 
 
 @dataclass(frozen=True)

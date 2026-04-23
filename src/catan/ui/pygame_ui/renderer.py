@@ -10,10 +10,14 @@ from catan.core.models.action import (
     BuildSettlement,
     BuyDevelopmentCard,
     EndTurn,
+    FinishRoadBuildingCard,
     MoveRobber,
     PlaceSetupRoad,
     PlaceSetupSettlement,
     PlayKnightCard,
+    PlayMonopolyCard,
+    PlayRoadBuildingCard,
+    PlayYearOfPlentyCard,
     RollDice,
     StealResource,
 )
@@ -115,6 +119,7 @@ class PygameRenderer:
         build_mode: str | None,
         trade_ui: dict[str, object] | None,
         discard_ui: dict[str, object] | None,
+        dev_card_ui: dict[str, object] | None = None,
         event_log_offset: int = 0,
     ) -> DrawnUi:
         legal_nodes, legal_edges, legal_tiles, steal_nodes, can_roll, can_end = extract_legal_targets(
@@ -161,6 +166,8 @@ class PygameRenderer:
             self._draw_trade_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, trade_ui)
         if discard_ui:
             self._draw_discard_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, discard_ui)
+        if dev_card_ui:
+            self._draw_dev_card_overlay(screen, state, active_player, panel_x, height, bottom_bar_height, dev_card_ui)
         return DrawnUi(
             roll_button_rect=roll_rect,
             end_turn_button_rect=end_rect,
@@ -413,27 +420,40 @@ class PygameRenderer:
         screen.blit(self.small_font.render("Dev cards", True, (236, 236, 236)), (start_x, start_y - 20))
         visible_card_types = [card_type for card_type, count in player.dev_cards.items() if count > 0]
         knight_playable = any(isinstance(action, PlayKnightCard) for action in legal_actions)
+        road_playable = any(isinstance(action, PlayRoadBuildingCard) for action in legal_actions)
+        yop_playable = any(isinstance(action, PlayYearOfPlentyCard) for action in legal_actions)
+        monopoly_playable = any(isinstance(action, PlayMonopolyCard) for action in legal_actions)
         clickable_rects: dict[DevelopmentCardType, object] = {}
         for idx, card_type in enumerate(visible_card_types):
             x = start_x + idx * (card_w + gap)
             rect = self.pg.Rect(x, start_y, card_w, card_h)
             count = player.dev_cards.get(card_type, 0)
-            is_clickable_knight = card_type == DevelopmentCardType.KNIGHT and knight_playable
-            is_disabled_knight = card_type == DevelopmentCardType.KNIGHT and not knight_playable
-            face_color = (84, 92, 120) if not is_disabled_knight else (62, 62, 70)
-            border_color = (120, 220, 120) if is_clickable_knight else (138, 145, 176)
+            is_playable = (
+                (card_type == DevelopmentCardType.KNIGHT and knight_playable)
+                or (card_type == DevelopmentCardType.ROAD_BUILDING and road_playable)
+                or (card_type == DevelopmentCardType.YEAR_OF_PLENTY and yop_playable)
+                or (card_type == DevelopmentCardType.MONOPOLY and monopoly_playable)
+            )
+            is_disabled = card_type in (
+                DevelopmentCardType.KNIGHT,
+                DevelopmentCardType.ROAD_BUILDING,
+                DevelopmentCardType.YEAR_OF_PLENTY,
+                DevelopmentCardType.MONOPOLY,
+            ) and not is_playable
+            face_color = (84, 92, 120) if not is_disabled else (62, 62, 70)
+            border_color = (120, 220, 120) if is_playable else (138, 145, 176)
             self.pg.draw.rect(screen, face_color, rect, border_radius=6)
-            self.pg.draw.rect(screen, border_color, rect, width=3 if is_clickable_knight else 2, border_radius=6)
+            self.pg.draw.rect(screen, border_color, rect, width=3 if is_playable else 2, border_radius=6)
             label = self._dev_card_name(card_type)
-            label_surface = self.small_font.render(label, True, (235, 235, 240) if not is_disabled_knight else (182, 182, 182))
+            label_surface = self.small_font.render(label, True, (235, 235, 240) if not is_disabled else (182, 182, 182))
             screen.blit(label_surface, (x + 8, start_y + 12))
             count_rect = self.pg.Rect(rect.right - 24, rect.y + 4, 20, 18)
             self.pg.draw.rect(screen, (245, 245, 245), count_rect, border_radius=4)
             screen.blit(self.small_font.render(str(count), True, (24, 24, 24)), (count_rect.x + 6, count_rect.y + 2))
-            if is_clickable_knight:
+            if is_playable:
                 screen.blit(self.small_font.render("Play", True, (120, 220, 120)), (x + 8, start_y + 66))
                 clickable_rects[card_type] = rect
-            elif is_disabled_knight:
+            elif is_disabled:
                 screen.blit(self.small_font.render("New", True, (150, 150, 150)), (x + 8, start_y + 66))
         return clickable_rects
 
@@ -533,6 +553,9 @@ class PygameRenderer:
             TurnStep.ROBBER_STEAL: f"P{active_player}: kies een tegenstander om van te stelen",
             TurnStep.ACTIONS: f"P{active_player}: bouw, trade of eindig je beurt",
             TurnStep.PLAYER_TRADE: f"P{active_player}: reageer op trade",
+            TurnStep.ROAD_BUILDING: f"P{active_player}: Road Building - plaats tot 2 roads",
+            TurnStep.YEAR_OF_PLENTY: f"P{active_player}: Year of Plenty - kies 2 resources",
+            TurnStep.MONOPOLY: f"P{active_player}: Monopoly - kies 1 resource",
         }
         return self._player_color(active_player), step_labels.get(state.turn.step, f"Speler P{active_player} aan zet")
 
@@ -660,6 +683,47 @@ class PygameRenderer:
         discard_ui["continue_button_rect"] = self.pg.Rect(right_x, y + 58, 160, 30)
         self.pg.draw.rect(screen, (86, 112, 150) if can_continue else (70, 70, 72), discard_ui["continue_button_rect"], border_radius=4)
         screen.blit(self.small_font.render("Doorgaan", True, (250, 250, 250)), (right_x + 50, y + 65))
+
+    def _draw_dev_card_overlay(
+        self,
+        screen,
+        state: GameState,
+        active_player: int | None,
+        panel_x: int,
+        height: int,
+        bottom_h: int,
+        dev_card_ui: dict[str, object],
+    ) -> None:
+        if active_player is None:
+            return
+        mode = dev_card_ui.get("mode")
+        overlay_h = max(int(bottom_h * 0.82), 120)
+        y = height - bottom_h - overlay_h - 8
+        self.pg.draw.rect(screen, (45, 45, 52), (10, y, panel_x - 20, overlay_h), border_radius=8)
+        if mode == "year_of_plenty":
+            selected = dev_card_ui.get("selected", {})
+            total = sum(int(selected.get(resource, 0)) for resource in ResourceType)
+            screen.blit(self.font.render(f"Year of Plenty ({total}/2)", True, (240, 240, 240)), (24, y + 10))
+            screen.blit(self.small_font.render("Selecteer 2 resources.", True, (214, 214, 214)), (24, y + 36))
+            start_x = 24
+            for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
+                rect = self.pg.Rect(start_x + idx * 72, y + 58, 66, 42)
+                self._draw_resource_card(screen, rect.x, rect.y, rect.width, rect.height, resource, int(selected.get(resource, 0)), compact=True)
+                dev_card_ui["resource_rects"][resource] = rect
+            right_x = panel_x - 190
+            dev_card_ui["submit_rect"] = self.pg.Rect(right_x, y + 58, 160, 30)
+            self.pg.draw.rect(screen, (86, 112, 150) if total == 2 else (70, 70, 72), dev_card_ui["submit_rect"], border_radius=4)
+            screen.blit(self.small_font.render("Bevestig", True, (250, 250, 250)), (right_x + 52, y + 65))
+            return
+
+        if mode == "monopoly":
+            screen.blit(self.font.render("Monopoly", True, (240, 240, 240)), (24, y + 10))
+            screen.blit(self.small_font.render("Kies 1 resource type.", True, (214, 214, 214)), (24, y + 36))
+            start_x = 24
+            for idx, resource in enumerate([ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]):
+                rect = self.pg.Rect(start_x + idx * 72, y + 58, 66, 42)
+                self._draw_resource_card(screen, rect.x, rect.y, rect.width, rect.height, resource, 0, compact=True)
+                dev_card_ui["resource_rects"][resource] = rect
 
     def _draw_resource_card(self, screen, x: int, y: int, width: int, height: int, resource: ResourceType, amount: int, *, compact: bool = False) -> None:
         color = {
