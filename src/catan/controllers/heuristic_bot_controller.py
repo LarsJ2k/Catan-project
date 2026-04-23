@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 import random
 import time
-from typing import Sequence
+from typing import Any, Sequence
 
 from catan.core.models.action import (
     Action,
@@ -69,25 +69,42 @@ class HeuristicBotController:
         if state is not None:
             discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
             if discard_placeholder is not None:
-                return self._choose_discard_action(state, discard_placeholder.player_id)
+                chosen = self._choose_discard_action(state, discard_placeholder.player_id)
+                self._record_decision(chosen_action=chosen, scored_candidates=[(chosen, 25.0)], legal_action_count=len(candidates))
+                return chosen
 
         if self._enable_delay and self._delay_seconds > 0:
             time.sleep(self._delay_seconds)
 
+        scored_candidates: list[tuple[Action, float]] = []
         best_score: float | None = None
         best_actions: list[Action] = []
         for action in candidates:
             score = self._score_action(action, state)
+            scored_candidates.append((action, score))
             if best_score is None or score > best_score:
                 best_score = score
                 best_actions = [action]
             elif score == best_score:
                 best_actions.append(action)
 
-        return best_actions[self._rng.randrange(len(best_actions))]
-
+        chosen = best_actions[self._rng.randrange(len(best_actions))]
+        self._record_decision(chosen_action=chosen, scored_candidates=scored_candidates, legal_action_count=len(candidates))
+        return chosen
     def set_delay_seconds(self, delay_seconds: float) -> None:
         self._delay_seconds = max(0.0, delay_seconds)
+
+    def get_last_decision(self) -> dict[str, Any] | None:
+        return getattr(self, "_last_decision", None)
+
+    def _record_decision(self, *, chosen_action: Action, scored_candidates: list[tuple[Action, float]], legal_action_count: int) -> None:
+        ranked = sorted(scored_candidates, key=lambda item: item[1], reverse=True)
+        self._last_decision = {
+            "kind": "heuristic",
+            "chosen_action": chosen_action,
+            "top_candidates": ranked[:2],
+            "legal_action_count": legal_action_count,
+        }
 
     def _choose_discard_action(self, state: GameState, player_id: int) -> DiscardResources:
         required = state.discard_requirements.get(player_id, 0)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Sequence
+from typing import Any, Sequence
 
 from catan.core.models.action import Action, DiscardResources, ProposePlayerTrade
 from catan.core.models.enums import ResourceType
@@ -35,15 +35,30 @@ class RandomBotController:
         if state is not None:
             discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
             if discard_placeholder is not None:
-                return self._choose_discard_action(state, discard_placeholder.player_id)
+                chosen = self._choose_discard_action(state, discard_placeholder.player_id)
+                self._record_decision(chosen_action=chosen, legal_action_count=len(candidates))
+                return chosen
 
         if self._enable_delay and self._delay_seconds > 0:
             time.sleep(self._delay_seconds)
 
-        return candidates[self._rng.randrange(len(candidates))]
+        chosen = candidates[self._rng.randrange(len(candidates))]
+        self._record_decision(chosen_action=chosen, legal_action_count=len(candidates))
+        return chosen
 
     def set_delay_seconds(self, delay_seconds: float) -> None:
         self._delay_seconds = max(0.0, delay_seconds)
+
+    def get_last_decision(self) -> dict[str, Any] | None:
+        return getattr(self, "_last_decision", None)
+
+    def _record_decision(self, *, chosen_action: Action, legal_action_count: int) -> None:
+        self._last_decision = {
+            "kind": "random",
+            "chosen_action": chosen_action,
+            "legal_action_count": legal_action_count,
+            "message": f"Random choice from {legal_action_count} legal actions",
+        }
 
     def _choose_discard_action(self, state: GameState, player_id: int) -> DiscardResources:
         required = state.discard_requirements.get(player_id, 0)
