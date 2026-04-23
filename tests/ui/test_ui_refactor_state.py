@@ -22,6 +22,17 @@ class DummyPygame:
     pass
 
 
+class DummyDraw:
+    @staticmethod
+    def rect(*_args, **_kwargs) -> None:
+        return None
+
+
+class DummyRectFactory:
+    def __call__(self, *_args, **_kwargs):
+        return DummyRect(False)
+
+
 def make_state() -> GameState:
     board = Board(
         nodes=(0, 1),
@@ -60,6 +71,41 @@ def test_bank_counts_subtract_player_hands() -> None:
     assert counts[ResourceType.LUMBER] == 16
     assert counts[ResourceType.ORE] == 16
     assert counts[ResourceType.BRICK] == 19
+
+
+def test_draw_bottom_bar_subtracts_selected_discard_cards_from_visible_hand() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    renderer.pg = DummyPygame()
+    renderer.pg.draw = DummyDraw()
+    renderer.pg.Rect = DummyRectFactory()
+    renderer._draw_dev_card_panel = lambda *_args, **_kwargs: {}
+    captured: dict[ResourceType, int] = {}
+
+    def capture_card(_screen, _x, _y, _w, _h, resource, amount, *, compact: bool = False) -> None:
+        if not compact:
+            captured[resource] = amount
+
+    renderer._draw_resource_card = capture_card
+    state = make_state()
+    p1 = replace(state.players[1], resources={**state.players[1].resources, ResourceType.ORE: 3})
+    state = replace(state, players={1: p1, 2: state.players[2]})
+    discard_ui = {"selected": {r: 0 for r in ResourceType}}
+    discard_ui["selected"][ResourceType.ORE] = 2
+
+    renderer._draw_bottom_bar(
+        screen=object(),
+        state=state,
+        active_player=1,
+        width=1200,
+        height=700,
+        panel_x=900,
+        bottom_h=170,
+        trade_ui=None,
+        discard_ui=discard_ui,
+        legal_actions=[],
+    )
+
+    assert captured[ResourceType.ORE] == 1
 
 
 def test_bank_trade_draft_validity_respects_port_rates() -> None:

@@ -370,11 +370,17 @@ class PygameRenderer:
         gap = 10
         resources = [ResourceType.GRAIN, ResourceType.LUMBER, ResourceType.BRICK, ResourceType.ORE, ResourceType.WOOL]
         offered = trade_ui.get("offer", {}) if trade_ui else {}
+        discard_selected = discard_ui.get("selected", {}) if discard_ui else {}
         trade_hand_rects = trade_ui.setdefault("hand_rects", {}) if trade_ui is not None else None
         discard_hand_rects = discard_ui.setdefault("hand_rects", {}) if discard_ui is not None else None
         for idx, resource in enumerate(resources):
             x = start_x + idx * (card_w + gap)
-            shown_amount = max(player.resources.get(resource, 0) - int(offered.get(resource, 0)), 0)
+            shown_amount = max(
+                player.resources.get(resource, 0)
+                - int(offered.get(resource, 0))
+                - int(discard_selected.get(resource, 0)),
+                0,
+            )
             self._draw_resource_card(screen, x, bar_y + 34, card_w, card_h, resource, shown_amount)
             if trade_hand_rects is not None:
                 trade_hand_rects[resource] = self.pg.Rect(x, bar_y + 34, card_w, card_h)
