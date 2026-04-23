@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from catan.controllers.human_controller import HumanController
+from catan.controllers.base import Controller
 from catan.core.engine import get_legal_actions
 from catan.core.models.action import (
     BankTrade,
@@ -28,6 +29,7 @@ from catan.core.models.action import (
 )
 from catan.core.models.enums import DevelopmentCardType, PlayerTradePhase, ResourceType, TurnStep
 from catan.core.models.state import GameState
+from catan.runners.game_setup import AppScreen, ControllerType, GameLaunchConfig, GameSetupState
 from catan.runners.local_pygame_runner import LocalPygameRunner
 
 from .input_mapper import HoverTarget, PygameInputMapper
@@ -43,7 +45,118 @@ class PygameApp:
         self.fullscreen = False
         self.runner = LocalPygameRunner()
 
-    def run(self, initial_state: GameState, controllers: Mapping[int, HumanController]) -> GameState:
+    def run_main_menu_and_setup(self) -> GameLaunchConfig | None:
+        self.pg.init()
+        if hasattr(self.pg, "font"):
+            self.pg.font.init()
+        self.pg.display.set_caption("Catan MVP (Menu + Setup)")
+        screen = self._create_display_surface()
+        clock = self.pg.time.Clock()
+        font = self.pg.font.SysFont("arial", 28)
+        small_font = self.pg.font.SysFont("arial", 22)
+        flow_state = GameSetupState()
+        selected_seed_input = False
+
+        while True:
+            width, height = screen.get_size()
+            title_rect = self.pg.Rect(40, 20, width - 80, 50)
+            new_game_rect = self.pg.Rect(width // 2 - 120, height // 2 - 20, 240, 48)
+            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 44, 240, 48)
+            back_rect = self.pg.Rect(40, height - 70, 160, 42)
+            start_rect = self.pg.Rect(width - 220, height - 70, 180, 42)
+            random_seed_rect = self.pg.Rect(60, 380, 170, 36)
+            fixed_seed_rect = self.pg.Rect(250, 380, 160, 36)
+            seed_input_rect = self.pg.Rect(60, 430, 350, 42)
+            slot_rects = [self.pg.Rect(60, 120 + idx * 55, 520, 40) for idx in range(4)]
+
+            for event in self.pg.event.get():
+                if event.type == self.pg.QUIT:
+                    self.pg.quit()
+                    return None
+                if event.type == self.pg.KEYDOWN and event.key == self.pg.K_F11:
+                    self.fullscreen = not self.fullscreen
+                    screen = self._create_display_surface()
+                    continue
+                if event.type == self.pg.VIDEORESIZE and not self.fullscreen:
+                    self.width, self.height = event.w, event.h
+                    screen = self._create_display_surface()
+                    continue
+                if flow_state.screen == AppScreen.MAIN_MENU:
+                    if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                        if new_game_rect.collidepoint(event.pos):
+                            flow_state = flow_state.go_to_setup()
+                        elif quit_rect.collidepoint(event.pos):
+                            self.pg.quit()
+                            return None
+                else:
+                    if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                        selected_seed_input = seed_input_rect.collidepoint(event.pos)
+                        if back_rect.collidepoint(event.pos):
+                            flow_state = flow_state.back_to_menu()
+                            selected_seed_input = False
+                            continue
+                        if start_rect.collidepoint(event.pos):
+                            config = flow_state.to_launch_config()
+                            if config is not None:
+                                self.pg.quit()
+                                return config
+                        if random_seed_rect.collidepoint(event.pos):
+                            flow_state = flow_state.with_random_seed()
+                            continue
+                        if fixed_seed_rect.collidepoint(event.pos):
+                            if flow_state.use_random_seed:
+                                flow_state = flow_state.with_fixed_seed_text("")
+                            continue
+                        for idx, rect in enumerate(slot_rects):
+                            if rect.collidepoint(event.pos):
+                                current = flow_state.player_slots[idx].controller_type
+                                next_type = ControllerType.BOT_PLACEHOLDER if current == ControllerType.HUMAN else ControllerType.HUMAN
+                                flow_state = flow_state.with_player_controller(idx, next_type)
+                                break
+                    if selected_seed_input and event.type == self.pg.KEYDOWN and not flow_state.use_random_seed:
+                        if event.key == self.pg.K_BACKSPACE:
+                            flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text[:-1])
+                        elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not flow_state.fixed_seed_text)):
+                            flow_state = flow_state.with_fixed_seed_text(flow_state.fixed_seed_text + event.unicode)
+
+            screen.fill((20, 20, 28))
+            title = "Main Menu" if flow_state.screen == AppScreen.MAIN_MENU else "Game Setup"
+            screen.blit(font.render(title, True, (240, 240, 240)), (title_rect.x, title_rect.y))
+            if flow_state.screen == AppScreen.MAIN_MENU:
+                self.pg.draw.rect(screen, (70, 120, 70), new_game_rect)
+                self.pg.draw.rect(screen, (120, 70, 70), quit_rect)
+                screen.blit(font.render("New Game", True, (255, 255, 255)), (new_game_rect.x + 45, new_game_rect.y + 8))
+                screen.blit(font.render("Quit", True, (255, 255, 255)), (quit_rect.x + 85, quit_rect.y + 8))
+            else:
+                screen.blit(small_font.render("Click slot to toggle controller: Human/Bot", True, (200, 200, 220)), (60, 85))
+                for idx, rect in enumerate(slot_rects):
+                    slot = flow_state.player_slots[idx]
+                    self.pg.draw.rect(screen, (60, 60, 90), rect)
+                    label = f"Player {slot.player_id}: {'Human' if slot.controller_type == ControllerType.HUMAN else 'Bot (placeholder)'}"
+                    screen.blit(small_font.render(label, True, (255, 255, 255)), (rect.x + 10, rect.y + 8))
+                self.pg.draw.rect(screen, (80, 80, 120), random_seed_rect)
+                self.pg.draw.rect(screen, (80, 80, 120), fixed_seed_rect)
+                screen.blit(small_font.render("Random seed", True, (255, 255, 255)), (random_seed_rect.x + 12, random_seed_rect.y + 7))
+                screen.blit(small_font.render("Fixed seed", True, (255, 255, 255)), (fixed_seed_rect.x + 20, fixed_seed_rect.y + 7))
+                seed_label = "ACTIVE" if flow_state.use_random_seed else "INACTIVE"
+                fixed_label = "ACTIVE" if not flow_state.use_random_seed else "INACTIVE"
+                screen.blit(small_font.render(seed_label, True, (170, 230, 170)), (random_seed_rect.right + 12, random_seed_rect.y + 7))
+                screen.blit(small_font.render(fixed_label, True, (170, 230, 170)), (fixed_seed_rect.right + 12, fixed_seed_rect.y + 7))
+                self.pg.draw.rect(screen, (40, 40, 60), seed_input_rect)
+                seed_text = flow_state.fixed_seed_text if flow_state.fixed_seed_text else "(enter number)"
+                screen.blit(small_font.render(f"Seed: {seed_text}", True, (240, 240, 240)), (seed_input_rect.x + 10, seed_input_rect.y + 10))
+                start_color = (70, 120, 70) if flow_state.can_start_game() else (80, 80, 80)
+                self.pg.draw.rect(screen, (90, 90, 90), back_rect)
+                self.pg.draw.rect(screen, start_color, start_rect)
+                screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
+                screen.blit(small_font.render("Start Game", True, (255, 255, 255)), (start_rect.x + 35, start_rect.y + 10))
+                if not flow_state.can_start_game():
+                    screen.blit(small_font.render("Fixed seed must be a valid integer.", True, (220, 130, 130)), (60, 485))
+
+            self.pg.display.flip()
+            clock.tick(30)
+
+    def run(self, initial_state: GameState, controllers: Mapping[int, Controller]) -> GameState:
         self.pg.init()
         if hasattr(self.pg, "font"):
             self.pg.font.init()
@@ -181,8 +294,10 @@ class PygameApp:
 
                 if active_player is None or active_player not in controllers:
                     continue
+                active_controller = controllers[active_player]
+                is_human = isinstance(active_controller, HumanController)
 
-                if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                if is_human and event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                     if drawn.event_log_scroll_up_rect is not None and drawn.event_log_scroll_up_rect.collidepoint(event.pos):
                         event_log_offset += 1
                         continue
@@ -193,13 +308,13 @@ class PygameApp:
                         discard_action = self._handle_discard_overlay_click(event.pos, discard_ui, state, active_player, discard_selection)
                         if discard_action is not None:
                             selected_action_text = str(discard_action)
-                            controllers[active_player].submit_action_intent(discard_action)
+                            active_controller.submit_action_intent(discard_action)
                         continue
                     if dev_card_ui is not None:
                         dev_flow_action = self._handle_dev_card_overlay_click(event.pos, dev_card_ui, active_player, legal, year_of_plenty_selected)
                         if dev_flow_action is not None:
                             selected_action_text = str(dev_flow_action)
-                            controllers[active_player].submit_action_intent(dev_flow_action)
+                            active_controller.submit_action_intent(dev_flow_action)
                             if isinstance(dev_flow_action, ChooseYearOfPlentyResources):
                                 year_of_plenty_selected = {r: 0 for r in ResourceType}
                         continue
@@ -229,12 +344,12 @@ class PygameApp:
                                 selected_action_text = "Trade draft cancelled"
                             continue
                         selected_action_text = str(clicked_action)
-                        controllers[active_player].submit_action_intent(clicked_action)
+                        active_controller.submit_action_intent(clicked_action)
                         continue
                     dev_click_action = self._dev_card_click_action(event.pos, drawn.dev_card_rects, legal)
                     if dev_click_action is not None:
                         selected_action_text = str(dev_click_action)
-                        controllers[active_player].submit_action_intent(dev_click_action)
+                        active_controller.submit_action_intent(dev_click_action)
                         continue
                     if trade_window_open and trade_ui is not None:
                         trade_action = self._handle_trade_overlay_click(
@@ -248,7 +363,7 @@ class PygameApp:
                                     trade_draft_requested = {r: 0 for r in ResourceType}
                                 continue
                             selected_action_text = str(trade_action)
-                            controllers[active_player].submit_action_intent(trade_action)
+                            active_controller.submit_action_intent(trade_action)
                             trade_window_open = False
                             trade_draft_offered = {r: 0 for r in ResourceType}
                             trade_draft_requested = {r: 0 for r in ResourceType}
@@ -257,16 +372,16 @@ class PygameApp:
                         player_trade_action = self._handle_player_trade_overlay_click(event.pos, trade_ui, state, active_player)
                         if player_trade_action is not None:
                             selected_action_text = str(player_trade_action)
-                            controllers[active_player].submit_action_intent(player_trade_action)
+                            active_controller.submit_action_intent(player_trade_action)
                             continue
 
-                if state.turn and state.turn.step == TurnStep.DISCARD:
+                if is_human and state.turn and state.turn.step == TurnStep.DISCARD:
                     discard_action = self._handle_discard_event(event, state, active_player, discard_selection)
                     if discard_action is not None:
                         selected_action_text = str(discard_action)
-                        controllers[active_player].submit_action_intent(discard_action)
+                        active_controller.submit_action_intent(discard_action)
                     continue
-                if state.turn and state.turn.step == TurnStep.ACTIONS:
+                if is_human and state.turn and state.turn.step == TurnStep.ACTIONS:
                     bank_trade_action, bank_trade_offer, bank_trade_request = self._handle_bank_trade_event(
                         event,
                         active_player,
@@ -276,8 +391,11 @@ class PygameApp:
                     )
                     if bank_trade_action is not None:
                         selected_action_text = str(bank_trade_action)
-                        controllers[active_player].submit_action_intent(bank_trade_action)
+                        active_controller.submit_action_intent(bank_trade_action)
                         continue
+
+                if not is_human:
+                    continue
 
                 mapped = input_mapper.map_event(
                     event,
@@ -291,7 +409,7 @@ class PygameApp:
                     if not self._is_board_action_allowed(mapped.action, build_mode):
                         continue
                     selected_action_text = str(mapped.action)
-                    controllers[active_player].submit_action_intent(mapped.action)
+                    active_controller.submit_action_intent(mapped.action)
                     if isinstance(mapped.action, (BuildRoad, BuildSettlement, BuildCity)):
                         build_mode = None
                     if mapped.status:
