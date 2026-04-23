@@ -79,8 +79,8 @@ class PygameApp:
         new_bot_description = ""
         new_bot_parameters: dict[str, str] = {}
         new_bot_param_keys: list[str] = []
-        selected_new_bot_param_idx = 0
-        editing_name_field = True
+        selected_new_bot_field_idx = 0
+        bot_lab_scroll_offset = 0
         bot_lab_error: str | None = None
 
         while True:
@@ -302,8 +302,16 @@ class PygameApp:
                 elif flow_state.screen == AppScreen.BOT_LAB:
                     bot_definitions = list_bot_definitions()
                     list_rect = self.pg.Rect(40, 90, width // 3, height - 180)
-                    new_from_selected_rect = self.pg.Rect(width // 3 + 80, height - 120, 340, 42)
+                    details_x = width // 3 + 70
+                    details_width = width - details_x - 40
+                    new_from_selected_rect = self.pg.Rect(details_x, height - 120, min(360, details_width), 42)
                     save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
+                    detail_panel_rect = self.pg.Rect(details_x, 96, details_width, height - 226)
+                    editable_fields = ["__name__", "__description__", *new_bot_param_keys]
+                    visible_row_height = 42
+                    max_rows = max(1, detail_panel_rect.height // visible_row_height)
+                    max_detail_scroll = max(0, (len(editable_fields) - max_rows) * visible_row_height)
+                    bot_lab_scroll_offset = max(0, min(bot_lab_scroll_offset, max_detail_scroll))
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                         if back_rect.collidepoint(event.pos):
                             flow_state = flow_state.back_to_menu()
@@ -323,9 +331,14 @@ class PygameApp:
                                 new_bot_description = base.description
                                 new_bot_parameters = {key: str(value) for key, value in base.parameters.items()}
                                 new_bot_param_keys = list(new_bot_parameters.keys())
-                                selected_new_bot_param_idx = 0
-                                editing_name_field = True
+                                selected_new_bot_field_idx = 0
+                                bot_lab_scroll_offset = 0
                                 bot_lab_error = None
+                            continue
+                        if create_form_open and detail_panel_rect.collidepoint(event.pos):
+                            clicked_row = (event.pos[1] - detail_panel_rect.y + bot_lab_scroll_offset) // visible_row_height
+                            if 0 <= clicked_row < len(editable_fields):
+                                selected_new_bot_field_idx = int(clicked_row)
                             continue
                         if create_form_open and save_rect.collidepoint(event.pos):
                             try:
@@ -343,29 +356,50 @@ class PygameApp:
                                     parameters=parsed_params,
                                 )
                                 create_form_open = False
+                                bot_lab_scroll_offset = 0
                                 bot_lab_error = None
                             except ValueError as exc:
                                 bot_lab_error = str(exc)
+                    if create_form_open and event.type == self.pg.MOUSEWHEEL:
+                        mouse_pos = self.pg.mouse.get_pos()
+                        if detail_panel_rect.collidepoint(mouse_pos):
+                            bot_lab_scroll_offset = max(0, min(max_detail_scroll, bot_lab_scroll_offset - event.y * 26))
                     if create_form_open and event.type == self.pg.KEYDOWN:
-                        if event.key == self.pg.K_TAB:
-                            editing_name_field = not editing_name_field
+                        if event.key in (self.pg.K_TAB, self.pg.K_DOWN):
+                            selected_new_bot_field_idx = min(len(editable_fields) - 1, selected_new_bot_field_idx + 1)
+                            target_top = selected_new_bot_field_idx * visible_row_height
+                            target_bottom = target_top + visible_row_height
+                            if target_bottom - bot_lab_scroll_offset > detail_panel_rect.height:
+                                bot_lab_scroll_offset = target_bottom - detail_panel_rect.height
                             continue
-                        if not editing_name_field and event.key == self.pg.K_UP and new_bot_param_keys:
-                            selected_new_bot_param_idx = max(0, selected_new_bot_param_idx - 1)
+                        if event.key == self.pg.K_UP:
+                            selected_new_bot_field_idx = max(0, selected_new_bot_field_idx - 1)
+                            target_top = selected_new_bot_field_idx * visible_row_height
+                            if target_top < bot_lab_scroll_offset:
+                                bot_lab_scroll_offset = target_top
                             continue
-                        if not editing_name_field and event.key == self.pg.K_DOWN and new_bot_param_keys:
-                            selected_new_bot_param_idx = min(len(new_bot_param_keys) - 1, selected_new_bot_param_idx + 1)
+                        if event.key == self.pg.K_PAGEDOWN:
+                            bot_lab_scroll_offset = min(max_detail_scroll, bot_lab_scroll_offset + detail_panel_rect.height // 2)
                             continue
-                        if editing_name_field and event.key == self.pg.K_BACKSPACE:
-                            new_bot_name = new_bot_name[:-1]
-                        elif editing_name_field and event.unicode and event.unicode.isprintable():
-                            new_bot_name += event.unicode
-                        elif not editing_name_field and new_bot_param_keys:
-                            key = new_bot_param_keys[selected_new_bot_param_idx]
+                        if event.key == self.pg.K_PAGEUP:
+                            bot_lab_scroll_offset = max(0, bot_lab_scroll_offset - detail_panel_rect.height // 2)
+                            continue
+                        selected_field = editable_fields[selected_new_bot_field_idx] if editable_fields else "__name__"
+                        if selected_field == "__name__":
                             if event.key == self.pg.K_BACKSPACE:
-                                new_bot_parameters[key] = new_bot_parameters[key][:-1]
+                                new_bot_name = new_bot_name[:-1]
                             elif event.unicode and event.unicode.isprintable():
-                                new_bot_parameters[key] += event.unicode
+                                new_bot_name += event.unicode
+                        elif selected_field == "__description__":
+                            if event.key == self.pg.K_BACKSPACE:
+                                new_bot_description = new_bot_description[:-1]
+                            elif event.unicode and event.unicode.isprintable():
+                                new_bot_description += event.unicode
+                        else:
+                            if event.key == self.pg.K_BACKSPACE:
+                                new_bot_parameters[selected_field] = new_bot_parameters[selected_field][:-1]
+                            elif event.unicode and event.unicode.isprintable():
+                                new_bot_parameters[selected_field] += event.unicode
 
             screen.fill((20, 20, 28))
             if flow_state.screen == AppScreen.MAIN_MENU:
@@ -468,36 +502,55 @@ class PygameApp:
                         y += 38
                     selected_definition = get_bot_definition(selected_lab_bot_id) if selected_lab_bot_id else None
                     details_x = width // 3 + 70
+                    details_width = width - details_x - 40
+                    detail_panel_rect = self.pg.Rect(details_x, 96, details_width, height - 226)
+                    self.pg.draw.rect(screen, (30, 40, 58), detail_panel_rect, border_radius=8)
+                    self.pg.draw.rect(screen, (90, 100, 136), detail_panel_rect, 1, border_radius=8)
                     if selected_definition is not None:
-                        details = [
-                            f"Name: {selected_definition.display_name}",
-                            f"Base type: {selected_definition.base_controller_type.value}",
-                            f"Description: {selected_definition.description or '(none)'}",
-                            "Parameters:",
-                        ] + [f"  - {key}: {value}" for key, value in selected_definition.parameters.items()]
-                        row_y = 110
-                        for line in details:
-                            screen.blit(small_font.render(line, True, (220, 220, 235)), (details_x, row_y))
-                            row_y += 30
-                    new_from_selected_rect = self.pg.Rect(details_x, height - 120, 340, 42)
+                        if create_form_open:
+                            form_rows = [
+                                ("New Bot Name", new_bot_name),
+                                ("Description", new_bot_description),
+                            ] + [(key, new_bot_parameters.get(key, "")) for key in new_bot_param_keys]
+                            row_height = 42
+                            max_rows = max(1, detail_panel_rect.height // row_height)
+                            max_detail_scroll = max(0, (len(form_rows) - max_rows) * row_height)
+                            bot_lab_scroll_offset = max(0, min(bot_lab_scroll_offset, max_detail_scroll))
+                            instruction = "Edit selected row. TAB/UP/DOWN to move, mouse wheel to scroll."
+                            screen.blit(small_font.render(instruction, True, (190, 210, 230)), (details_x + 10, 68))
+                            clip_before = screen.get_clip()
+                            screen.set_clip(detail_panel_rect)
+                            for idx, (label, value) in enumerate(form_rows):
+                                row_y = detail_panel_rect.y + idx * row_height - bot_lab_scroll_offset
+                                row_rect = self.pg.Rect(detail_panel_rect.x + 8, row_y, detail_panel_rect.width - 16, row_height - 6)
+                                if row_rect.bottom < detail_panel_rect.y or row_rect.y > detail_panel_rect.bottom:
+                                    continue
+                                is_selected = idx == selected_new_bot_field_idx
+                                self.pg.draw.rect(screen, (78, 108, 138) if is_selected else (48, 62, 86), row_rect, border_radius=6)
+                                text = f"{label}: {value}"
+                                screen.blit(
+                                    small_font.render(text, True, (255, 255, 255) if is_selected else (220, 230, 240)),
+                                    (row_rect.x + 10, row_rect.y + 10),
+                                )
+                            screen.set_clip(clip_before)
+                        else:
+                            details = [
+                                f"Name: {selected_definition.display_name}",
+                                f"Base type: {selected_definition.base_controller_type.value}",
+                                f"Description: {selected_definition.description or '(none)'}",
+                                "Parameters:",
+                            ] + [f"  - {key}: {value}" for key, value in selected_definition.parameters.items()]
+                            clip_before = screen.get_clip()
+                            screen.set_clip(detail_panel_rect)
+                            row_y = detail_panel_rect.y + 10
+                            for line in details:
+                                screen.blit(small_font.render(line, True, (220, 220, 235)), (details_x + 10, row_y))
+                                row_y += 30
+                            screen.set_clip(clip_before)
+                    new_from_selected_rect = self.pg.Rect(details_x, height - 120, min(360, details_width), 42)
                     self.pg.draw.rect(screen, (70, 90, 130), new_from_selected_rect, border_radius=8)
                     screen.blit(small_font.render("New Bot (based on selected bot)", True, (255, 255, 255)), (details_x + 12, height - 110))
                     if create_form_open:
-                        form_rect = self.pg.Rect(details_x, height - 360, width - details_x - 40, 220)
-                        self.pg.draw.rect(screen, (36, 48, 64), form_rect, border_radius=8)
-                        name_color = (255, 255, 255) if editing_name_field else (190, 210, 230)
-                        screen.blit(small_font.render(f"New name: {new_bot_name}", True, name_color), (details_x + 10, height - 340))
-                        screen.blit(small_font.render(f"Description: {new_bot_description}", True, (240, 240, 240)), (details_x + 10, height - 310))
-                        instruction = "TAB switches edit focus; UP/DOWN pick parameter; type to edit."
-                        screen.blit(small_font.render(instruction, True, (190, 210, 230)), (details_x + 10, height - 280))
-                        param_y = height - 250
-                        for idx, key in enumerate(new_bot_param_keys[:5]):
-                            value = new_bot_parameters.get(key, "")
-                            selected = (not editing_name_field) and idx == selected_new_bot_param_idx
-                            color = (255, 255, 255) if selected else (200, 220, 235)
-                            prefix = ">" if selected else " "
-                            screen.blit(small_font.render(f"{prefix} {key}: {value}", True, color), (details_x + 10, param_y))
-                            param_y += 28
                         save_rect = self.pg.Rect(width - 220, height - 120, 180, 42)
                         self.pg.draw.rect(screen, (70, 120, 70), save_rect, border_radius=8)
                         screen.blit(small_font.render("Save New Bot", True, (255, 255, 255)), (width - 200, height - 110))
