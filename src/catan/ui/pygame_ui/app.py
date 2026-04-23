@@ -160,27 +160,17 @@ class PygameApp:
                     ControllerType.HUMAN: "Human",
                     ControllerType.RANDOM_BOT: "Bot (random)",
                 }
+                open_slot_rect = None
                 for idx, rect in enumerate(slot_rects):
                     slot = flow_state.player_slots[idx]
                     is_dropdown_open = open_controller_dropdown == idx
+                    if is_dropdown_open:
+                        open_slot_rect = rect
                     self.pg.draw.rect(screen, (78, 86, 122) if is_dropdown_open else (60, 60, 90), rect)
                     label = f"Player {slot.player_id}: {controller_labels.get(slot.controller_type, slot.controller_type.value)}"
                     screen.blit(small_font.render(label, True, (255, 255, 255)), (rect.x + 10, rect.y + 8))
                     indicator = "▾" if is_dropdown_open else "▸"
                     screen.blit(small_font.render(indicator, True, (220, 220, 235)), (rect.right - 24, rect.y + 7))
-
-                    if is_dropdown_open:
-                        dropdown_options = list(ControllerType)
-                        for option_idx, controller_option in enumerate(dropdown_options):
-                            option_rect = self.pg.Rect(rect.x, rect.bottom + option_idx * rect.height, rect.width, rect.height)
-                            is_selected = controller_option == slot.controller_type
-                            self.pg.draw.rect(screen, (92, 120, 105) if is_selected else (52, 52, 78), option_rect)
-                            option_label = controller_labels.get(controller_option, controller_option.value)
-                            prefix = "✓ " if is_selected else "  "
-                            screen.blit(
-                                small_font.render(f"{prefix}{option_label}", True, (245, 245, 245)),
-                                (option_rect.x + 10, option_rect.y + 8),
-                            )
                 self.pg.draw.rect(screen, (80, 80, 120), seed_slider_rect, border_radius=18)
                 slider_mid_x = seed_slider_rect.centerx
                 self.pg.draw.line(
@@ -212,6 +202,24 @@ class PygameApp:
                 screen.blit(small_font.render("Start Game", True, (255, 255, 255)), (start_rect.x + 35, start_rect.y + 10))
                 if not flow_state.can_start_game():
                     screen.blit(small_font.render("Fixed seed must be a valid integer.", True, (220, 130, 130)), (60, 485))
+                if open_controller_dropdown is not None and open_slot_rect is not None:
+                    dropdown_options = list(ControllerType)
+                    for option_idx, controller_option in enumerate(dropdown_options):
+                        option_rect = self.pg.Rect(
+                            open_slot_rect.x,
+                            open_slot_rect.bottom + option_idx * open_slot_rect.height,
+                            open_slot_rect.width,
+                            open_slot_rect.height,
+                        )
+                        selected_option = flow_state.player_slots[open_controller_dropdown].controller_type
+                        is_selected = controller_option == selected_option
+                        self.pg.draw.rect(screen, (92, 120, 105) if is_selected else (52, 52, 78), option_rect)
+                        option_label = controller_labels.get(controller_option, controller_option.value)
+                        prefix = "✓ " if is_selected else "  "
+                        screen.blit(
+                            small_font.render(f"{prefix}{option_label}", True, (245, 245, 245)),
+                            (option_rect.x + 10, option_rect.y + 8),
+                        )
 
             self.pg.display.flip()
             clock.tick(30)
