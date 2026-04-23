@@ -20,6 +20,11 @@ class PlayerState:
     new_dev_cards: dict[DevelopmentCardType, int] = field(default_factory=lambda: {card_type: 0 for card_type in DevelopmentCardType})
     knights_played: int = 0
     longest_road_length: int = 0
+    dev_cards_bought: int = 0
+    dev_cards_played: int = 0
+    bank_trades_count: int = 0
+    player_trades_proposed: int = 0
+    player_trades_completed: int = 0
 
 
 @dataclass

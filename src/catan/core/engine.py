@@ -700,7 +700,12 @@ def _apply_buy_development_card(state: GameState, action: BuyDevelopmentCard) ->
     dev_cards[drawn_card] += 1
     new_dev_cards = dict(player.new_dev_cards)
     new_dev_cards[drawn_card] += 1
-    updated_player = replace(player, dev_cards=dev_cards, new_dev_cards=new_dev_cards)
+    updated_player = replace(
+        player,
+        dev_cards=dev_cards,
+        new_dev_cards=new_dev_cards,
+        dev_cards_bought=player.dev_cards_bought + 1,
+    )
     next_state = replace(
         state,
         players={**state.players, action.player_id: updated_player},
@@ -713,7 +718,12 @@ def _apply_play_knight_card(state: GameState, action: PlayKnightCard) -> GameSta
     player = state.players[action.player_id]
     dev_cards = dict(player.dev_cards)
     dev_cards[DevelopmentCardType.KNIGHT] -= 1
-    updated_player = replace(player, dev_cards=dev_cards, knights_played=player.knights_played + 1)
+    updated_player = replace(
+        player,
+        dev_cards=dev_cards,
+        knights_played=player.knights_played + 1,
+        dev_cards_played=player.dev_cards_played + 1,
+    )
     next_state = replace(
         state,
         players={**state.players, action.player_id: updated_player},
@@ -733,7 +743,7 @@ def _apply_play_road_building_card(state: GameState, action: PlayRoadBuildingCar
     player = state.players[action.player_id]
     dev_cards = dict(player.dev_cards)
     dev_cards[DevelopmentCardType.ROAD_BUILDING] -= 1
-    updated_player = replace(player, dev_cards=dev_cards)
+    updated_player = replace(player, dev_cards=dev_cards, dev_cards_played=player.dev_cards_played + 1)
     flow = DevCardFlowState(card_type=DevelopmentCardType.ROAD_BUILDING, roads_remaining=2, roads_placed=0)
     next_state = replace(
         state,
@@ -767,7 +777,7 @@ def _apply_play_year_of_plenty_card(state: GameState, action: PlayYearOfPlentyCa
     player = state.players[action.player_id]
     dev_cards = dict(player.dev_cards)
     dev_cards[DevelopmentCardType.YEAR_OF_PLENTY] -= 1
-    updated_player = replace(player, dev_cards=dev_cards)
+    updated_player = replace(player, dev_cards=dev_cards, dev_cards_played=player.dev_cards_played + 1)
     return replace(
         state,
         players={**state.players, action.player_id: updated_player},
@@ -798,7 +808,7 @@ def _apply_play_monopoly_card(state: GameState, action: PlayMonopolyCard) -> Gam
     player = state.players[action.player_id]
     dev_cards = dict(player.dev_cards)
     dev_cards[DevelopmentCardType.MONOPOLY] -= 1
-    updated_player = replace(player, dev_cards=dev_cards)
+    updated_player = replace(player, dev_cards=dev_cards, dev_cards_played=player.dev_cards_played + 1)
     return replace(
         state,
         players={**state.players, action.player_id: updated_player},
@@ -842,10 +852,18 @@ def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
     resources = dict(player.resources)
     resources[action.offer_resource] -= action.trade_rate
     resources[action.request_resource] += 1
-    return replace(state, players={**state.players, action.player_id: replace(player, resources=resources)})
+    return replace(
+        state,
+        players={
+            **state.players,
+            action.player_id: replace(player, resources=resources, bank_trades_count=player.bank_trades_count + 1),
+        },
+    )
 
 
 def _apply_propose_player_trade(state: GameState, action: ProposePlayerTrade) -> GameState:
+    proposer = state.players[action.player_id]
+    updated_proposer = replace(proposer, player_trades_proposed=proposer.player_trades_proposed + 1)
     order = _player_order_after(state, action.player_id)
     requested_bundle = _bundle_to_dict(action.requested_resources)
     eligible = tuple(pid for pid in order if _player_has_bundle(state.players[pid], requested_bundle))
@@ -859,7 +877,14 @@ def _apply_propose_player_trade(state: GameState, action: ProposePlayerTrade) ->
         interested_responders=tuple(),
         phase=PlayerTradePhase.RESPONSES,
     )
-    return _advance_trade_flow(replace(state, player_trade=trade, turn=replace(state.turn, step=TurnStep.PLAYER_TRADE)))
+    return _advance_trade_flow(
+        replace(
+            state,
+            players={**state.players, action.player_id: updated_proposer},
+            player_trade=trade,
+            turn=replace(state.turn, step=TurnStep.PLAYER_TRADE),
+        )
+    )
 
 
 def _apply_respond_to_trade(state: GameState, action: RespondToTradeInterested | RespondToTradePass, *, interested: bool) -> GameState:
@@ -881,6 +906,8 @@ def _apply_choose_trade_partner(state: GameState, action: ChooseTradePartner) ->
     requested_bundle = _bundle_to_dict(trade.requested_resources)
     proposer = _apply_resource_bundle_delta(state.players[action.player_id], proposer_bundle, requested_bundle)
     partner = _apply_resource_bundle_delta(state.players[action.partner_player_id], requested_bundle, proposer_bundle)
+    proposer = replace(proposer, player_trades_completed=proposer.player_trades_completed + 1)
+    partner = replace(partner, player_trades_completed=partner.player_trades_completed + 1)
     return replace(
         state,
         players={
