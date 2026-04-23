@@ -642,11 +642,11 @@ class PygameApp:
         if before_trade is None:
             return lines
         if after_trade is None:
+            trade_line = self._detect_player_trade_execution(before, after, before_trade.proposer_player_id)
             if before_trade.phase == PlayerTradePhase.RESPONSES and not before_trade.interested_responders:
                 lines.append("No players were interested")
-            elif before_trade.phase == PlayerTradePhase.PARTNER_SELECTION:
+            elif before_trade.phase == PlayerTradePhase.PARTNER_SELECTION and trade_line is None:
                 lines.append(f"P{before_trade.proposer_player_id} rejected all trade responses")
-            trade_line = self._detect_player_trade_execution(before, after, before_trade.proposer_player_id)
             if trade_line is not None:
                 lines.append(trade_line)
             return lines

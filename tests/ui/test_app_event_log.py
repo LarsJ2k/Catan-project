@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 from catan.core.models.board import Board, Edge, Port, Tile
-from catan.core.models.enums import GamePhase, ResourceType, TerrainType, TurnStep
-from catan.core.models.state import GameState, PlacedPieces, PlayerState, SetupState, TurnState
+from catan.core.models.enums import GamePhase, PlayerTradePhase, ResourceType, TerrainType, TurnStep
+from catan.core.models.state import GameState, PlacedPieces, PlayerState, PlayerTradeState, SetupState, TurnState
 from catan.ui.pygame_ui.app import PygameApp
 
 
@@ -143,3 +143,39 @@ def test_describe_transition_logs_port_trade_rate_and_source() -> None:
 
     lines = app._describe_transition(before, after, "BankTrade(player_id=1, ...)")
     assert "P1 traded 2 Ore for 1 Wheat via Ore port" in lines
+
+
+def test_describe_transition_player_trade_selection_does_not_log_rejection_on_success() -> None:
+    app = PygameApp(DummyPygame())
+    before = make_state()
+    before = replace(
+        before,
+        turn=replace(before.turn, step=TurnStep.PLAYER_TRADE),
+        players={
+            1: replace(before.players[1], resources={**before.players[1].resources, ResourceType.BRICK: 1}),
+            2: replace(before.players[2], resources={**before.players[2].resources}),
+        },
+        player_trade=PlayerTradeState(
+            proposer_player_id=1,
+            offered_resources=((ResourceType.BRICK, 1),),
+            requested_resources=((ResourceType.ORE, 1),),
+            responder_order=(2,),
+            current_responder_index=1,
+            eligible_responders=(2,),
+            interested_responders=(2,),
+            phase=PlayerTradePhase.PARTNER_SELECTION,
+        ),
+    )
+    after = replace(
+        before,
+        turn=replace(before.turn, step=TurnStep.ACTIONS),
+        players={
+            1: replace(before.players[1], resources={**before.players[1].resources, ResourceType.BRICK: 0, ResourceType.ORE: 1}),
+            2: replace(before.players[2], resources={**before.players[2].resources, ResourceType.BRICK: 1, ResourceType.ORE: 0}),
+        },
+        player_trade=None,
+    )
+
+    lines = app._describe_transition(before, after, "ChooseTradePartner(player_id=1, partner_player_id=2)")
+    assert "P1 traded 1 Brick for 1 Ore with P2" in lines
+    assert "P1 rejected all trade responses" not in lines
