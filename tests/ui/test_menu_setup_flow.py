@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from catan.controllers.random_bot_controller import RandomBotController
 from catan.controllers.human_controller import HumanController
-from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState
+from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState, available_controller_types
 from catan.runners.launcher import create_controllers
 
 
@@ -16,44 +16,97 @@ def test_menu_setup_state_transitions() -> None:
     assert menu_state.screen == AppScreen.MAIN_MENU
 
 
-def test_per_player_controller_selection_state() -> None:
+def test_right_side_selection_has_single_active_entry() -> None:
     state = GameSetupState().go_to_setup()
-    state = state.with_player_controller(1, ControllerType.RANDOM_BOT)
-    state = state.with_player_controller(3, ControllerType.RANDOM_BOT)
+    state = state.with_selected_controller(ControllerType.HUMAN)
+    assert state.selected_controller == ControllerType.HUMAN
 
-    assert state.player_slots[0].controller_type == ControllerType.HUMAN
-    assert state.player_slots[1].controller_type == ControllerType.RANDOM_BOT
-    assert state.player_slots[2].controller_type == ControllerType.HUMAN
-    assert state.player_slots[3].controller_type == ControllerType.RANDOM_BOT
+    next_state = state.with_selected_controller(ControllerType.RANDOM_BOT)
+    assert next_state.selected_controller == ControllerType.RANDOM_BOT
+    assert state.selected_controller == ControllerType.HUMAN
+
+
+def test_add_button_inserts_in_first_empty_slot_and_respects_max_slots() -> None:
+    state = GameSetupState().go_to_setup().with_selected_controller(ControllerType.RANDOM_BOT)
+
+    state = state.add_selected_player()
+    state = state.add_selected_player()
+    assert state.slot_controller(0) == ControllerType.RANDOM_BOT
+    assert state.slot_controller(1) == ControllerType.RANDOM_BOT
+    assert state.configured_player_count() == 2
+
+    filled = state
+    for _ in range(4):
+        filled = filled.add_selected_player()
+    assert filled.configured_player_count() == 4
+    assert filled.add_selected_player() == filled
+
+
+def test_remove_compacts_lower_slots_upward() -> None:
+    state = GameSetupState().go_to_setup()
+    state = state.with_selected_controller(ControllerType.HUMAN).add_selected_player()
+    state = state.with_selected_controller(ControllerType.RANDOM_BOT).add_selected_player()
+    state = state.with_selected_controller(ControllerType.HUMAN).add_selected_player()
+    state = state.with_selected_controller(ControllerType.RANDOM_BOT).add_selected_player()
+
+    compacted = state.remove_player_at(1)
+
+    assert compacted.configured_player_count() == 3
+    assert compacted.slot_controller(0) == ControllerType.HUMAN
+    assert compacted.slot_controller(1) == ControllerType.HUMAN
+    assert compacted.slot_controller(2) == ControllerType.RANDOM_BOT
+    assert compacted.slot_controller(3) is None
 
 
 def test_seed_selection_and_config_generation() -> None:
-    random_state = GameSetupState().go_to_setup().with_random_seed()
+    random_state = GameSetupState().go_to_setup()
+    random_state = random_state.with_selected_controller(ControllerType.HUMAN).add_selected_player().add_selected_player()
+    random_state = random_state.with_random_seed()
     random_config = random_state.to_launch_config()
     assert random_config is not None
     assert isinstance(random_config.seed, int)
 
-    fixed_state = GameSetupState().go_to_setup().with_fixed_seed_text("12345")
+    fixed_state = GameSetupState().go_to_setup().with_selected_controller(ControllerType.HUMAN).add_selected_player().add_selected_player()
+    fixed_state = fixed_state.with_fixed_seed_text("12345")
     fixed_config = fixed_state.to_launch_config()
     assert fixed_config is not None
     assert fixed_config.seed == 12345
 
-    invalid_fixed_state = GameSetupState().go_to_setup().with_fixed_seed_text("abc")
+    invalid_fixed_state = GameSetupState().go_to_setup()
+    invalid_fixed_state = invalid_fixed_state.with_selected_controller(ControllerType.HUMAN).add_selected_player().add_selected_player()
+    invalid_fixed_state = invalid_fixed_state.with_fixed_seed_text("abc")
     assert invalid_fixed_state.can_start_game() is False
     assert invalid_fixed_state.to_launch_config() is None
 
 
-def test_launch_config_creates_expected_controller_instances() -> None:
+def test_launch_config_uses_ordered_left_slots_and_creates_expected_controllers() -> None:
     state = GameSetupState().go_to_setup()
-    state = state.with_player_controller(0, ControllerType.RANDOM_BOT)
-    state = state.with_player_controller(1, ControllerType.RANDOM_BOT)
+    state = state.with_selected_controller(ControllerType.RANDOM_BOT).add_selected_player()
+    state = state.add_selected_player()
+    state = state.with_selected_controller(ControllerType.HUMAN).add_selected_player()
     state = state.with_fixed_seed_text("777")
     config = state.to_launch_config()
     assert config is not None
+    assert [slot.player_id for slot in config.player_slots] == [1, 2, 3]
+    assert [slot.controller_type for slot in config.player_slots] == [
+        ControllerType.RANDOM_BOT,
+        ControllerType.RANDOM_BOT,
+        ControllerType.HUMAN,
+    ]
 
     controllers = create_controllers(config)
 
     assert isinstance(controllers[1], RandomBotController)
     assert isinstance(controllers[2], RandomBotController)
     assert isinstance(controllers[3], HumanController)
-    assert isinstance(controllers[4], HumanController)
+
+
+def test_cannot_start_when_too_few_players_configured() -> None:
+    state = GameSetupState().go_to_setup().with_selected_controller(ControllerType.HUMAN).add_selected_player()
+    assert state.can_start_game() is False
+    assert state.to_launch_config() is None
+
+
+def test_available_controller_types_keep_human_first() -> None:
+    controller_types = available_controller_types()
+    assert controller_types[0] == ControllerType.HUMAN
