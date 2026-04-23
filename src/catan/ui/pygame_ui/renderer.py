@@ -353,6 +353,9 @@ class PygameRenderer:
         y += 84
         screen.blit(self.font.render("Players", True, (238, 238, 238)), (panel_x + 10, y))
         y += 24
+        reveal_current_hidden_vp = False
+        if active_player is not None:
+            reveal_current_hidden_vp = any(getattr(action, "player_id", None) == active_player for action in legal_actions)
         for pid in sorted(state.players):
             p = state.players[pid]
             hand_size = sum(p.resources.values())
@@ -360,7 +363,11 @@ class PygameRenderer:
             row = self.pg.Rect(panel_x + 8, y, panel_width - 16, 24)
             self.pg.draw.rect(screen, (50, 50, 60), row, border_radius=4)
             screen.blit(self.small_font.render(f"P{pid}", True, self._player_color(pid)), (row.x + 8, row.y + 4))
-            vp_text = self._scoreboard_vp_text(state, player_id=pid)
+            vp_text = self._scoreboard_vp_text(
+                state,
+                player_id=pid,
+                reveal_current_hidden_vp=reveal_current_hidden_vp,
+            )
             screen.blit(self.small_font.render(vp_text, True, (220, 220, 220)), (row.x + 46, row.y + 4))
             screen.blit(self.small_font.render(f"Cards {hand_size}", True, (220, 220, 220)), (row.x + 112, row.y + 4))
             knight_color = (120, 220, 120) if state.largest_army_holder == pid else (220, 220, 220)
@@ -1015,7 +1022,7 @@ class PygameRenderer:
         }
         return names[card_type]
 
-    def _scoreboard_vp_text(self, state: GameState, player_id: int) -> str:
+    def _scoreboard_vp_text(self, state: GameState, player_id: int, *, reveal_current_hidden_vp: bool = True) -> str:
         player = state.players[player_id]
         award_vp = 0
         if state.largest_army_holder == player_id:
@@ -1023,7 +1030,7 @@ class PygameRenderer:
         if state.longest_road_holder == player_id:
             award_vp += 2
         public_vp = player.victory_points + award_vp
-        if state.turn is not None and state.turn.current_player == player_id:
+        if reveal_current_hidden_vp and state.turn is not None and state.turn.current_player == player_id:
             hidden_vp = player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
             if hidden_vp > 0:
                 return f"VP {public_vp}({public_vp + hidden_vp})"

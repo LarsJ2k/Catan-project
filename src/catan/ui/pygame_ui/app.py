@@ -298,6 +298,10 @@ class PygameApp:
                 discard_selection_player,
             )
             legal = get_legal_actions(state, active_player) if active_player is not None else []
+            render_legal = legal
+            if active_player is not None and active_player in controllers:
+                if not isinstance(controllers[active_player], HumanController):
+                    render_legal = []
             hover = input_mapper.get_hover_target(self.pg.mouse.get_pos(), layout) if hasattr(self.pg, "mouse") else HoverTarget()
 
             if state.turn and state.turn.step == TurnStep.DISCARD and active_player is not None:
@@ -361,7 +365,7 @@ class PygameApp:
                 screen,
                 state,
                 layout,
-                legal,
+                render_legal,
                 active_player,
                 event_log,
                 selected_action_text,
@@ -1185,6 +1189,13 @@ class PygameApp:
             and before.turn.step == TurnStep.YEAR_OF_PLENTY
             and after.turn.step == TurnStep.ACTIONS
         )
+        suppress_monopoly_detail = (
+            acting_player is not None
+            and before.turn is not None
+            and after.turn is not None
+            and before.turn.step == TurnStep.MONOPOLY
+            and after.turn.step == TurnStep.ACTIONS
+        )
 
         before_roll = before.turn.last_roll if before.turn else None
         after_roll = after.turn.last_roll if after.turn else None
@@ -1204,7 +1215,7 @@ class PygameApp:
                 after_amount = after.players[pid].resources.get(resource, 0)
                 delta = after_amount - before_amount
                 if delta > 0:
-                    if not (suppress_yop_detail and pid == acting_player):
+                    if not ((suppress_yop_detail or suppress_monopoly_detail) and pid == acting_player):
                         lines.append(f"P{pid} received {delta} {self._resource_name(resource)}")
                     if before.turn and before.turn.step in (TurnStep.ROBBER_MOVE, TurnStep.ROBBER_STEAL) and delta == 1:
                         victims = [other for other in sorted(after.players.keys()) if other != pid and before.players[other].resources.get(resource, 0) - after.players[other].resources.get(resource, 0) == 1]

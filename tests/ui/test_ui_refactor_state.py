@@ -248,6 +248,22 @@ def test_hand_view_player_shows_single_human_in_1v3_even_when_not_adjacent() -> 
     assert hand_player == 1
 
 
+def test_scoreboard_vp_text_hides_hidden_vp_when_private_info_not_available() -> None:
+    renderer = PygameRenderer.__new__(PygameRenderer)
+    state = make_state()
+    players = {
+        1: replace(
+            state.players[1],
+            dev_cards={**state.players[1].dev_cards, DevelopmentCardType.VICTORY_POINT: 1},
+        ),
+        2: state.players[2],
+    }
+    state = replace(state, players=players, turn=TurnState(current_player=1, step=TurnStep.ACTIONS))
+
+    assert renderer._scoreboard_vp_text(state, player_id=1, reveal_current_hidden_vp=False) == "VP 0"
+    assert renderer._scoreboard_vp_text(state, player_id=1, reveal_current_hidden_vp=True) == "VP 0(1)"
+
+
 def test_clicking_dice_button_only_rolls() -> None:
     app = PygameApp(DummyPygame())
     state = make_state()
