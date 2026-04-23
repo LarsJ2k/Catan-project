@@ -273,6 +273,8 @@ class PygameApp:
         trade_window_open = False
         year_of_plenty_selected = {r: 0 for r in ResourceType}
         settings_menu_open = False
+        settings_delay_input = self._format_bot_delay_input(self._current_bot_delay_seconds(controllers))
+        settings_delay_error: str | None = None
         self.return_to_main_menu = False
 
         running = True
@@ -364,7 +366,12 @@ class PygameApp:
                 event_log_offset=event_log_offset,
                 hand_view_player=hand_view_player,
             )
-            settings_ui = self._draw_settings_ui(screen, menu_open=settings_menu_open)
+            settings_ui = self._draw_settings_ui(
+                screen,
+                menu_open=settings_menu_open,
+                bot_delay_input=settings_delay_input,
+                delay_error=settings_delay_error,
+            )
 
             for event in self.pg.event.get():
                 if event.type == self.pg.QUIT:
@@ -398,9 +405,30 @@ class PygameApp:
                         self.return_to_main_menu = False
                         running = False
                         continue
+                    if settings_click == "apply_delay":
+                        parsed_delay = self._parse_bot_delay_input(settings_delay_input)
+                        if parsed_delay is None:
+                            settings_delay_error = "Invalid delay (use 0.0 or higher)."
+                        else:
+                            updated = self._apply_bot_delay(controllers, parsed_delay)
+                            if updated:
+                                settings_delay_error = None
+                                settings_delay_input = self._format_bot_delay_input(parsed_delay)
+                                event_log.append(f"[{action_counter:03d}] bot delay set to {parsed_delay:.2f}s")
+                            else:
+                                settings_delay_error = "No bot controllers found."
+                        continue
                     if settings_menu_open:
                         settings_menu_open = False
                         continue
+                if settings_menu_open and event.type == self.pg.KEYDOWN:
+                    if event.key == self.pg.K_BACKSPACE:
+                        settings_delay_input = settings_delay_input[:-1]
+                        settings_delay_error = None
+                    elif event.unicode in "0123456789.":
+                        if not (event.unicode == "." and "." in settings_delay_input):
+                            settings_delay_input += event.unicode
+                            settings_delay_error = None
 
                 if active_player is None or active_player not in controllers:
                     continue
@@ -553,7 +581,14 @@ class PygameApp:
         self.pg.quit()
         return state
 
-    def _draw_settings_ui(self, screen, *, menu_open: bool) -> dict[str, object]:
+    def _draw_settings_ui(
+        self,
+        screen,
+        *,
+        menu_open: bool,
+        bot_delay_input: str,
+        delay_error: str | None,
+    ) -> dict[str, object]:
         small_font = self.pg.font.SysFont("arial", 18)
         width, _ = screen.get_size()
         settings_rect = self.pg.Rect(width - 52, 12, 40, 40)
@@ -562,16 +597,28 @@ class PygameApp:
         ui: dict[str, object] = {"settings_button_rect": settings_rect}
         if not menu_open:
             return ui
-        menu_rect = self.pg.Rect(width - 242, 58, 230, 100)
+        menu_rect = self.pg.Rect(width - 312, 58, 300, 170)
         self.pg.draw.rect(screen, (42, 42, 50), menu_rect, border_radius=8)
         self.pg.draw.rect(screen, (80, 80, 95), menu_rect, width=1, border_radius=8)
-        to_menu_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 12, menu_rect.width - 24, 34)
-        to_desktop_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 54, menu_rect.width - 24, 34)
+        delay_label_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 10, menu_rect.width - 24, 22)
+        delay_input_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 34, 160, 30)
+        delay_apply_rect = self.pg.Rect(delay_input_rect.right + 10, delay_input_rect.y, 106, 30)
+        to_menu_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 86, menu_rect.width - 24, 34)
+        to_desktop_rect = self.pg.Rect(menu_rect.x + 12, menu_rect.y + 124, menu_rect.width - 24, 34)
+        self.pg.draw.rect(screen, (62, 62, 74), delay_input_rect, border_radius=5)
+        self.pg.draw.rect(screen, (88, 114, 90), delay_apply_rect, border_radius=5)
         self.pg.draw.rect(screen, (88, 114, 90), to_menu_rect, border_radius=5)
         self.pg.draw.rect(screen, (110, 78, 78), to_desktop_rect, border_radius=5)
+        screen.blit(small_font.render("Bot turn delay (seconds)", True, (245, 245, 245)), (delay_label_rect.x, delay_label_rect.y))
+        screen.blit(small_font.render(bot_delay_input or "0.0", True, (238, 238, 238)), (delay_input_rect.x + 9, delay_input_rect.y + 6))
+        screen.blit(small_font.render("Apply", True, (245, 245, 245)), (delay_apply_rect.x + 29, delay_apply_rect.y + 6))
         screen.blit(small_font.render("Quit to Main Menu", True, (245, 245, 245)), (to_menu_rect.x + 14, to_menu_rect.y + 9))
         screen.blit(small_font.render("Quit to Desktop", True, (245, 245, 245)), (to_desktop_rect.x + 20, to_desktop_rect.y + 9))
+        if delay_error:
+            screen.blit(small_font.render(delay_error, True, (220, 130, 130)), (menu_rect.x + 12, menu_rect.y + 67))
         ui["settings_menu_rect"] = menu_rect
+        ui["delay_input_rect"] = delay_input_rect
+        ui["apply_delay_rect"] = delay_apply_rect
         ui["quit_to_menu_rect"] = to_menu_rect
         ui["quit_to_desktop_rect"] = to_desktop_rect
         return ui
@@ -590,9 +637,41 @@ class PygameApp:
             return "quit_menu"
         if settings_ui["quit_to_desktop_rect"].collidepoint(pos):
             return "quit_desktop"
+        if settings_ui["apply_delay_rect"].collidepoint(pos):
+            return "apply_delay"
         if settings_ui["settings_menu_rect"].collidepoint(pos):
             return "menu"
         return None
+
+    def _current_bot_delay_seconds(self, controllers: Mapping[int, Controller]) -> float:
+        for controller in controllers.values():
+            delay_seconds = getattr(controller, "_delay_seconds", None)
+            if isinstance(delay_seconds, (int, float)):
+                return float(delay_seconds)
+        return 0.0
+
+    def _apply_bot_delay(self, controllers: Mapping[int, Controller], delay_seconds: float) -> bool:
+        updated = False
+        for controller in controllers.values():
+            set_delay_seconds = getattr(controller, "set_delay_seconds", None)
+            if callable(set_delay_seconds):
+                set_delay_seconds(delay_seconds)
+                updated = True
+        return updated
+
+    def _parse_bot_delay_input(self, value: str) -> float | None:
+        if not value:
+            return None
+        try:
+            parsed = float(value)
+        except ValueError:
+            return None
+        if parsed < 0:
+            return None
+        return parsed
+
+    def _format_bot_delay_input(self, value: float) -> str:
+        return f"{value:.2f}".rstrip("0").rstrip(".")
 
     def _draw_dropdown_indicator(
         self,

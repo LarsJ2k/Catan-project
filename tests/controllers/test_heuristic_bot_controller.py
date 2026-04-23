@@ -7,6 +7,7 @@ from catan.core.models.action import (
     BuildCity,
     BuildRoad,
     BuildSettlement,
+    DiscardResources,
     EndTurn,
     ProposePlayerTrade,
     RespondToTradeInterested,
@@ -187,3 +188,26 @@ def test_heuristic_save_for_settlement_penalizes_road_spend() -> None:
     chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[road, EndTurn(player_id=1)])
 
     assert isinstance(chosen, EndTurn)
+
+
+def test_heuristic_bot_builds_valid_discard_action_from_placeholder() -> None:
+    bot = HeuristicBotController(seed=6, enable_delay=False)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=88))
+    state.phase = GamePhase.MAIN_TURN
+    state.turn = TurnState(current_player=1, priority_player=1, step=TurnStep.DISCARD)
+    state.discard_requirements = {1: 3}
+    state.players[1].resources = {
+        ResourceType.BRICK: 2,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 1,
+    }
+
+    action = bot.choose_action(
+        observation=DebugObservation(state=state),
+        legal_actions=[DiscardResources(player_id=1, resources=tuple())],
+    )
+
+    assert isinstance(action, DiscardResources)
+    assert sum(amount for _, amount in action.resources) == 3

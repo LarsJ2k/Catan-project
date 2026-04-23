@@ -65,10 +65,15 @@ class HeuristicBotController:
         if not candidates:
             raise ValueError("HeuristicBotController received no selectable legal actions.")
 
+        state = observation.state if isinstance(observation, DebugObservation) else None
+        if state is not None:
+            discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
+            if discard_placeholder is not None:
+                return self._choose_discard_action(state, discard_placeholder.player_id)
+
         if self._enable_delay and self._delay_seconds > 0:
             time.sleep(self._delay_seconds)
 
-        state = observation.state if isinstance(observation, DebugObservation) else None
         best_score: float | None = None
         best_actions: list[Action] = []
         for action in candidates:
@@ -80,6 +85,31 @@ class HeuristicBotController:
                 best_actions.append(action)
 
         return best_actions[self._rng.randrange(len(best_actions))]
+
+    def set_delay_seconds(self, delay_seconds: float) -> None:
+        self._delay_seconds = max(0.0, delay_seconds)
+
+    def _choose_discard_action(self, state: GameState, player_id: int) -> DiscardResources:
+        required = state.discard_requirements.get(player_id, 0)
+        hand = dict(state.players[player_id].resources)
+        prioritized = sorted(
+            (resource for resource in ResourceType if hand.get(resource, 0) > 0),
+            key=lambda resource: (_RESOURCE_VALUE[resource], -hand[resource]),
+        )
+        discards: dict[ResourceType, int] = {resource: 0 for resource in ResourceType}
+        remaining = required
+        while remaining > 0:
+            for resource in prioritized:
+                if hand[resource] <= 0:
+                    continue
+                hand[resource] -= 1
+                discards[resource] += 1
+                remaining -= 1
+                break
+        return DiscardResources(
+            player_id=player_id,
+            resources=tuple((resource, amount) for resource, amount in discards.items() if amount > 0),
+        )
 
     def _score_action(self, action: Action, state: GameState | None) -> float:
         if isinstance(action, RollDice):
