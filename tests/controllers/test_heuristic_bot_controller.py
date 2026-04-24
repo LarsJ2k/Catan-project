@@ -68,7 +68,7 @@ def test_heuristic_prefers_city_over_road() -> None:
     assert bot.choose_action(observation=None, legal_actions=legal) == BuildCity(player_id=1, node_id=3)  # type: ignore[arg-type]
 
 
-def test_heuristic_trade_response_uses_simple_value_check() -> None:
+def test_heuristic_trade_response_uses_conservative_plan_check() -> None:
     bot = HeuristicBotController(seed=4, enable_delay=False)
     state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=44))
     state.phase = GamePhase.MAIN_TURN
@@ -88,7 +88,7 @@ def test_heuristic_trade_response_uses_simple_value_check() -> None:
 
     legal = [RespondToTradeInterested(player_id=2), RespondToTradePass(player_id=2)]
     good_trade_choice = bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
-    assert isinstance(good_trade_choice, RespondToTradeInterested)
+    assert isinstance(good_trade_choice, RespondToTradePass)
 
     state.player_trade = PlayerTradeState(
         proposer_player_id=1,

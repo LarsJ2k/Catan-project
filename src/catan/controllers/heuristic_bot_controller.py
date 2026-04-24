@@ -66,10 +66,11 @@ class HeuristicBotController:
         self._resource_values = self._params.resource_values()
         self._score_notes: dict[int, str] = {}
         self._bank_trades_this_turn = 0
+        self._player_trade_proposals_this_turn = 0
         self._last_turn_player_id: int | None = None
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
-        candidates = [action for action in legal_actions if not isinstance(action, ProposePlayerTrade)]
+        candidates = list(legal_actions)
         if not candidates:
             if not legal_actions:
                 raise ValueError("HeuristicBotController received no legal actions.")
@@ -81,6 +82,7 @@ class HeuristicBotController:
         self._prepare_turn_context(state)
         self._score_notes = {}
         if state is not None:
+            candidates.extend(self._candidate_player_trades(state, legal_actions))
             discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
             if discard_placeholder is not None:
                 chosen = self._choose_discard_action(state, discard_placeholder.player_id)
@@ -105,6 +107,8 @@ class HeuristicBotController:
         chosen = best_actions[self._rng.randrange(len(best_actions))]
         if isinstance(chosen, BankTrade):
             self._bank_trades_this_turn += 1
+        if isinstance(chosen, ProposePlayerTrade):
+            self._player_trade_proposals_this_turn += 1
         self._record_decision(chosen_action=chosen, scored_candidates=scored_candidates, legal_action_count=len(candidates))
         return chosen
     def set_delay_seconds(self, delay_seconds: float) -> None:
@@ -166,12 +170,18 @@ class HeuristicBotController:
             return self._params.road_base_score + self._score_road(action, state)
         if isinstance(action, BankTrade):
             return self._score_bank_trade(action, state)
+        if isinstance(action, ProposePlayerTrade):
+            return self._score_player_trade_proposal(action, state)
         if isinstance(action, MoveRobber):
             return self._score_move_robber(action, state)
         if isinstance(action, RespondToTradeInterested):
-            return 75 if self._trade_response_is_good(state) else -20
+            good, reason = self._trade_response_evaluation(state)
+            self._score_notes[id(action)] = reason
+            return 75 if good else -20
         if isinstance(action, RespondToTradePass):
-            return 30 if self._trade_response_is_good(state) else 70
+            good, reason = self._trade_response_evaluation(state)
+            self._score_notes[id(action)] = "pass: " + reason
+            return 30 if good else 70
         if isinstance(action, ChooseTradePartner):
             return 40
         if isinstance(action, DiscardResources):
@@ -495,13 +505,104 @@ class HeuristicBotController:
     def _prepare_turn_context(self, state: GameState | None) -> None:
         if state is None or state.turn is None:
             self._bank_trades_this_turn = 0
+            self._player_trade_proposals_this_turn = 0
             self._last_turn_player_id = None
             return
         if state.turn.step != TurnStep.ACTIONS:
             self._bank_trades_this_turn = 0
         if self._last_turn_player_id != state.turn.current_player:
             self._bank_trades_this_turn = 0
+            self._player_trade_proposals_this_turn = 0
             self._last_turn_player_id = state.turn.current_player
+
+    def _candidate_player_trades(self, state: GameState, legal_actions: Sequence[Action]) -> list[ProposePlayerTrade]:
+        if state.turn is None or state.turn.step != TurnStep.ACTIONS or state.player_trade is not None:
+            return []
+        current_player = state.turn.current_player
+        if not any(action.player_id == current_player for action in legal_actions):
+            return []
+        if self._player_trade_proposals_this_turn >= max(0, int(self._params.max_bot_trade_proposals_per_turn)):
+            return []
+        player = state.players[current_player]
+        opponents = [p for p in state.players.values() if p.player_id != current_player]
+        proposals: list[ProposePlayerTrade] = []
+        for request in ResourceType:
+            if not any(op.resources.get(request, 0) >= 1 for op in opponents):
+                continue
+            for offer in ResourceType:
+                if offer == request:
+                    continue
+                if player.resources.get(offer, 0) >= 1:
+                    proposals.append(
+                        ProposePlayerTrade(player_id=current_player, offered_resources=((offer, 1),), requested_resources=((request, 1),))
+                    )
+                if player.resources.get(offer, 0) >= 2:
+                    proposals.append(
+                        ProposePlayerTrade(player_id=current_player, offered_resources=((offer, 2),), requested_resources=((request, 1),))
+                    )
+        return proposals
+
+    def _score_player_trade_proposal(self, action: ProposePlayerTrade, state: GameState | None) -> float:
+        if state is None or state.turn is None:
+            return -100.0
+        player = state.players[action.player_id]
+        offered = dict(action.offered_resources)
+        requested = dict(action.requested_resources)
+        if len(requested) != 1 or sum(requested.values()) != 1:
+            return -100.0
+        offer_count = sum(offered.values())
+        if offer_count not in (1, 2) or any(amount <= 0 for amount in offered.values()):
+            return -100.0
+        if any(player.resources.get(resource, 0) < amount for resource, amount in offered.items()):
+            return -100.0
+        resources_before = dict(player.resources)
+        resources_after = dict(resources_before)
+        for resource, amount in offered.items():
+            resources_after[resource] -= amount
+        requested_resource = next(iter(requested.keys()))
+        resources_after[requested_resource] = resources_after.get(requested_resource, 0) + 1
+        enables_city = self._can_afford(resources_after, _CITY_COST)
+        enables_settlement = self._can_afford(resources_after, _SETTLEMENT_COST)
+        enables_dev = self._can_afford(resources_after, _DEV_COST)
+        missing_before = min(
+            self._missing_resources(resources_before, _CITY_COST),
+            self._missing_resources(resources_before, _SETTLEMENT_COST),
+            self._missing_resources(resources_before, _DEV_COST),
+        )
+        missing_after = min(
+            self._missing_resources(resources_after, _CITY_COST),
+            self._missing_resources(resources_after, _SETTLEMENT_COST),
+            self._missing_resources(resources_after, _DEV_COST),
+        )
+        production = self._player_production_resources(state, action.player_id)
+        scarce_bonus = (
+            self._params.player_trade_scarce_resource_bonus
+            if production.get(requested_resource, 0) <= 1 and missing_after <= max(1, missing_before)
+            else 0.0
+        )
+        critical_loss = self._critical_giveaway_penalty(resources_before, resources_after)
+        leader_penalty = 0.0
+        if any(p.victory_points >= 8 and p.resources.get(requested_resource, 0) > 0 for p in state.players.values() if p.player_id != action.player_id):
+            leader_penalty = self._params.player_trade_leader_penalty
+        score = (
+            (self._params.player_trade_enable_city_bonus if enables_city else 0.0)
+            + (self._params.player_trade_enable_settlement_bonus if enables_settlement else 0.0)
+            + (self._params.player_trade_enable_dev_bonus if enables_dev else 0.0)
+            + (4.0 if missing_after == 1 and missing_after < missing_before else 0.0)
+            + scarce_bonus
+            - critical_loss
+            - leader_penalty
+        )
+        self._score_notes[id(action)] = f"propose: offer={offered} ask={requested}; score={score:.1f}"
+        if score < self._params.player_trade_proposal_threshold:
+            return -50.0 + score
+        return score
+
+    def _critical_giveaway_penalty(self, resources_before: dict[ResourceType, int], resources_after: dict[ResourceType, int]) -> float:
+        for cost in (_CITY_COST, _SETTLEMENT_COST):
+            if self._can_afford(resources_before, cost) and not self._can_afford(resources_after, cost):
+                return self._params.player_trade_critical_giveaway_penalty
+        return 0.0
 
     def _score_move_robber(self, action: MoveRobber, state: GameState | None) -> float:
         if state is None:
@@ -539,27 +640,43 @@ class HeuristicBotController:
                     counts[resource] += 2
         return counts
 
-    def _trade_response_is_good(self, state: GameState | None) -> bool:
+    def _trade_response_evaluation(self, state: GameState | None) -> tuple[bool, str]:
         if state is None or state.player_trade is None or state.turn is None:
-            return False
+            return False, "reject: no trade context"
         responder_id = state.turn.priority_player
         if responder_id is None:
-            return False
+            return False, "reject: no responder"
         responder = state.players[responder_id]
         offered = dict(state.player_trade.offered_resources)
         requested = dict(state.player_trade.requested_resources)
-
-        give_value = 0.0
-        receive_value = 0.0
-        for resource, amount in offered.items():
-            receive_value += self._resource_values[resource] * amount
+        proposer = state.players[state.player_trade.proposer_player_id]
+        if proposer.victory_points >= 9:
+            return False, "reject: proposer near win"
         for resource, amount in requested.items():
             if responder.resources.get(resource, 0) < amount:
-                return False
-            scarcity_penalty = self._params.trade_scarcity_penalty if responder.resources.get(resource, 0) <= amount else 0.0
-            give_value += (self._resource_values[resource] + scarcity_penalty) * amount
-
-        return (receive_value - give_value) >= self._params.trade_interest_threshold
+                return False, "reject: cannot pay requested"
+        resources_before = dict(responder.resources)
+        resources_after = dict(resources_before)
+        for resource, amount in requested.items():
+            resources_after[resource] -= amount
+        for resource, amount in offered.items():
+            resources_after[resource] = resources_after.get(resource, 0) + amount
+        critical_penalty = self._critical_giveaway_penalty(resources_before, resources_after)
+        if critical_penalty > 0:
+            return False, "reject: gives critical resource"
+        production = self._player_production_resources(state, responder_id)
+        scarce_gain = any(production.get(resource, 0) <= 1 and resources_before.get(resource, 0) == 0 for resource in offered)
+        score = (
+            (self._params.player_trade_enable_city_bonus if self._can_afford(resources_after, _CITY_COST) else 0.0)
+            + (self._params.player_trade_enable_settlement_bonus if self._can_afford(resources_after, _SETTLEMENT_COST) else 0.0)
+            + (self._params.player_trade_enable_dev_bonus if self._can_afford(resources_after, _DEV_COST) else 0.0)
+            + (self._params.player_trade_scarce_resource_bonus if scarce_gain else 0.0)
+        )
+        if proposer.victory_points >= 8:
+            score -= self._params.player_trade_leader_penalty
+        if score >= self._params.player_trade_accept_threshold:
+            return True, f"accept: score {score:.1f}"
+        return False, f"reject: low benefit {score:.1f}"
 
     def _tile_by_id(self, state: GameState, tile_id: int):
         for tile in state.board.tiles:

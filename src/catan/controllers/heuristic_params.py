@@ -59,6 +59,15 @@ class HeuristicScoringParams:
     bank_trade_enable_settlement_bonus: float = 30.0
     trade_interest_threshold: float = 0.0
     trade_scarcity_penalty: float = 0.5
+    max_bot_trade_proposals_per_turn: int = 1
+    player_trade_enable_settlement_bonus: float = 24.0
+    player_trade_enable_city_bonus: float = 30.0
+    player_trade_enable_dev_bonus: float = 18.0
+    player_trade_scarce_resource_bonus: float = 10.0
+    player_trade_critical_giveaway_penalty: float = 16.0
+    player_trade_leader_penalty: float = 18.0
+    player_trade_accept_threshold: float = 8.0
+    player_trade_proposal_threshold: float = 10.0
     setup_expansion_profile_bonus: float = 0.0
     setup_city_dev_profile_bonus: float = 0.0
     setup_profile_missing_penalty: float = 0.0
