@@ -91,12 +91,22 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
         yop = self._playable_year_of_plenty(state, legal_actions)
         if yop is not None:
             return yop
+        settlement_locations_available = self._has_immediate_settlement_location(state, legal_actions)
         rb = self._playable_road_building(state, legal_actions)
         if rb is not None:
             return rb
         monopoly = self._playable_monopoly(state, legal_actions)
         if monopoly is not None:
             return monopoly
+
+        if settlement_locations_available:
+            settlement_actions = [a for a in legal_actions if isinstance(a, BuildSettlement)]
+            if settlement_actions:
+                return self._best_settlement_action(state, settlement_actions)
+            settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
+            if settlement_trade is not None:
+                return settlement_trade
+            return next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions)))
 
         city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]
         if city_actions:
@@ -593,11 +603,25 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
         action = next((a for a in legal_actions if isinstance(a, PlayRoadBuildingCard)), None)
         if action is None:
             return None
-        if any(isinstance(a, BuildSettlement) for a in legal_actions):
+        if self._has_immediate_settlement_location(state, legal_actions):
             return None
         if not any(isinstance(a, BuildRoad) for a in legal_actions):
             return None
         return action if self._select_future_settlement_target(state, legal_actions) is not None else None
+
+    def _has_immediate_settlement_location(self, state: GameState, legal_actions: Sequence[Action]) -> bool:
+        if state.turn is None:
+            return False
+        player = state.players[state.turn.current_player]
+        if player.settlements_left <= 0:
+            return False
+        if any(isinstance(action, BuildSettlement) for action in legal_actions):
+            return True
+        distances = self._roads_to_node_distances(state)
+        return any(
+            distances.get(node_id) == 0
+            for node_id in self._candidate_settlement_targets(state)
+        )
 
     def _playable_monopoly(self, state: GameState, legal_actions: Sequence[Action]) -> PlayMonopolyCard | None:
         action = next((a for a in legal_actions if isinstance(a, PlayMonopolyCard)), None)
