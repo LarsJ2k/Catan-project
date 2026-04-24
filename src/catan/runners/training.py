@@ -224,7 +224,11 @@ class TrainingRunner:
                 seed=match.seed + player_id,
                 delay_seconds=0.0,
             )
-        final_state, step_count = self._game_runner.play_until_terminal_with_steps(state, controllers, max_steps=100_000)
+        final_state, step_count, full_turn_count = self._game_runner.play_until_terminal_with_steps(
+            state,
+            controllers,
+            max_steps=100_000,
+        )
         seat_vps = tuple(_total_victory_points(final_state, pid + 1) for pid in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
@@ -245,6 +249,7 @@ class TrainingRunner:
             winner_bot_id=winner_bot_id,
             winner_seat=winner_seat,
             turn_count=step_count,
+            full_turn_count=full_turn_count,
             seat_results=seat_results,
         )
 
