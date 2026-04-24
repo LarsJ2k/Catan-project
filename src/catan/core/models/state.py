@@ -25,6 +25,7 @@ class PlayerState:
     bank_trades_count: int = 0
     player_trades_proposed: int = 0
     player_trades_completed: int = 0
+    total_resources_earned: int = 0
 
 
 @dataclass
