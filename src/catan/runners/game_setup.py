@@ -201,6 +201,7 @@ class TournamentSetupState:
     seat_rotation_enabled: bool = True
     export_json: bool = True
     export_csv: bool = True
+    export_stalled_games_debug: bool = False
     enable_v2_profiling: bool = False
 
     def toggle_bot(self, controller_type: str) -> TournamentSetupState:
@@ -216,6 +217,7 @@ class TournamentSetupState:
                 seat_rotation_enabled=self.seat_rotation_enabled,
                 export_json=self.export_json,
                 export_csv=self.export_csv,
+                export_stalled_games_debug=self.export_stalled_games_debug,
                 enable_v2_profiling=self.enable_v2_profiling,
             )
         return TournamentSetupState(
@@ -227,6 +229,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -240,6 +243,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -253,6 +257,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -266,6 +271,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -279,6 +285,7 @@ class TournamentSetupState:
             seat_rotation_enabled=enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -292,6 +299,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=enabled,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -305,6 +313,21 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=enabled,
+            export_stalled_games_debug=self.export_stalled_games_debug,
+            enable_v2_profiling=self.enable_v2_profiling,
+        )
+
+    def with_export_stalled_games_debug(self, enabled: bool) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+            export_stalled_games_debug=enabled,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -318,6 +341,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=enabled,
         )
 
@@ -331,6 +355,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -350,6 +375,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -367,6 +393,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
@@ -396,7 +423,11 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             base_seed=base_seed,
             fixed_lineup=fixed_lineup,
-            output_options=TournamentOutputOptions(write_json=self.export_json, write_csv=self.export_csv),
+            output_options=TournamentOutputOptions(
+                write_json=self.export_json,
+                write_csv=self.export_csv,
+                write_stalled_games_debug=self.export_stalled_games_debug,
+            ),
             enable_v2_profiling=self.enable_v2_profiling,
         )
 

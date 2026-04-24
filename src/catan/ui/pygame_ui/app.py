@@ -232,6 +232,7 @@ class PygameApp:
                     seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
                     export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
                     export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
+                    export_stalled_debug_rect = self.pg.Rect(610, height - 195, 250, 38)
                     seed_minus_rect = self.pg.Rect(60, height - 145, 42, 36)
                     seed_plus_rect = self.pg.Rect(236, height - 145, 42, 36)
                     if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
@@ -288,6 +289,11 @@ class PygameApp:
                         if export_csv_rect.collidepoint(event.pos):
                             tournament_state = tournament_state.with_export_csv(not tournament_state.export_csv)
                             continue
+                        if export_stalled_debug_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_export_stalled_games_debug(
+                                not tournament_state.export_stalled_games_debug
+                            )
+                            continue
                         if seed_minus_rect.collidepoint(event.pos):
                             new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
                             tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
@@ -330,6 +336,10 @@ class PygameApp:
                             tournament_state = tournament_state.with_export_json(not tournament_state.export_json)
                         elif event.key == self.pg.K_c:
                             tournament_state = tournament_state.with_export_csv(not tournament_state.export_csv)
+                        elif event.key == self.pg.K_d:
+                            tournament_state = tournament_state.with_export_stalled_games_debug(
+                                not tournament_state.export_stalled_games_debug
+                            )
                         elif event.key == self.pg.K_MINUS:
                             new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
                             tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
@@ -944,9 +954,17 @@ class PygameApp:
                     seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
                     export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
                     export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
+                    export_stalled_debug_rect = self.pg.Rect(610, height - 195, 250, 38)
                     self._draw_toggle_button(screen, small_font, seat_rotation_rect, "Seat Rotation", tournament_state.seat_rotation_enabled)
                     self._draw_toggle_button(screen, small_font, export_json_rect, "Export JSON", tournament_state.export_json)
                     self._draw_toggle_button(screen, small_font, export_csv_rect, "Export CSV", tournament_state.export_csv)
+                    self._draw_toggle_button(
+                        screen,
+                        small_font,
+                        export_stalled_debug_rect,
+                        "Stalled Debug (D)",
+                        tournament_state.export_stalled_games_debug,
+                    )
                     seed_minus_rect = self.pg.Rect(60, height - 145, 42, 36)
                     seed_plus_rect = self.pg.Rect(236, height - 145, 42, 36)
                     self.pg.draw.rect(screen, (70, 80, 100), seed_minus_rect, border_radius=6)
