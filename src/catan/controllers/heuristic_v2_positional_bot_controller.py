@@ -42,7 +42,7 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         decision_start = perf_counter()
         prep_start = perf_counter()
         filter_start = perf_counter()
-        candidates = [action for action in legal_actions if not isinstance(action, ProposePlayerTrade)]
+        candidates = list(legal_actions)
         profile.filter_forbidden_time_s = perf_counter() - filter_start
         if not candidates:
             fallback = legal_actions[self._rng.randrange(len(legal_actions))]

@@ -122,13 +122,14 @@ def test_v1_robber_avoids_self_harm_when_clear_choice_exists() -> None:
     assert chosen == MoveRobber(player_id=1, tile_id=target_tile)
 
 
-def test_v1_trade_response_uses_simple_value_check() -> None:
+def test_v1_trade_response_uses_conservative_plan_check() -> None:
     bot = HeuristicV1BaselineBotController(seed=4, enable_delay=False)
     state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=44))
     state.phase = GamePhase.MAIN_TURN
     state.turn = TurnState(current_player=1, priority_player=2, step=TurnStep.ACTIONS)
     state.players[2].resources[ResourceType.BRICK] = 2
     state.players[2].resources[ResourceType.ORE] = 1
+    state.players[2].resources[ResourceType.WOOL] = 1
 
     state.player_trade = PlayerTradeState(
         proposer_player_id=1,
@@ -141,19 +142,29 @@ def test_v1_trade_response_uses_simple_value_check() -> None:
         phase=PlayerTradePhase.RESPONSES,
     )
     legal = [RespondToTradeInterested(player_id=2), RespondToTradePass(player_id=2)]
-    assert isinstance(bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal), RespondToTradeInterested)
+    assert isinstance(bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal), RespondToTradePass)
 
-    state.player_trade = PlayerTradeState(
+    critical_state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=217))
+    critical_state.turn = TurnState(current_player=1, priority_player=2, step=TurnStep.ACTIONS)
+    critical_state.players[1].victory_points = 3
+    critical_state.players[2].resources = {
+        ResourceType.BRICK: 1,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 0,
+    }
+    critical_state.player_trade = PlayerTradeState(
         proposer_player_id=1,
-        offered_resources=((ResourceType.BRICK, 1),),
-        requested_resources=((ResourceType.ORE, 1),),
+        offered_resources=((ResourceType.WOOL, 1),),
+        requested_resources=((ResourceType.GRAIN, 1),),
         responder_order=(2,),
         current_responder_index=0,
         eligible_responders=(2,),
         interested_responders=(),
         phase=PlayerTradePhase.RESPONSES,
     )
-    assert isinstance(bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal), RespondToTradePass)
+    assert isinstance(bot.choose_action(observation=DebugObservation(state=critical_state), legal_actions=legal), RespondToTradePass)
 
 
 def test_v1_prefers_dev_purchase_when_no_strong_build_exists() -> None:
@@ -239,3 +250,113 @@ def test_v1_accepts_bank_trade_that_enables_city() -> None:
     trade = BankTrade(player_id=1, offer_resource=ResourceType.BRICK, request_resource=ResourceType.ORE, trade_rate=4)
     chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1), trade])
     assert chosen == trade
+
+
+def test_v1_can_initiate_conservative_player_trade_that_enables_city() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3), board=build_classic_19_tile_board(), seed=212))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0, ResourceType.GRAIN: 2, ResourceType.ORE: 2}
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = HeuristicV1BaselineBotController(seed=2, enable_delay=False)
+
+    chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    assert isinstance(chosen, ProposePlayerTrade)
+    assert sum(amount for _, amount in chosen.offered_resources) in (1, 2)
+    assert sum(amount for _, amount in chosen.requested_resources) == 1
+
+
+def test_v1_player_trade_proposal_limit_defaults_to_one_and_resets_next_turn() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3), board=build_classic_19_tile_board(), seed=213))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0, ResourceType.GRAIN: 2, ResourceType.ORE: 2}
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = HeuristicV1BaselineBotController(seed=3, enable_delay=False)
+
+    first = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    second = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    assert isinstance(first, ProposePlayerTrade)
+    assert isinstance(second, EndTurn)
+
+    state.turn = TurnState(current_player=2, step=TurnStep.ACTIONS)
+    _ = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=2)])
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    third = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    assert isinstance(third, ProposePlayerTrade)
+
+
+def test_v1_player_trade_proposal_limit_can_be_two() -> None:
+    params = HeuristicScoringParams(max_bot_trade_proposals_per_turn=2)
+    bot = HeuristicV1BaselineBotController(seed=4, enable_delay=False, heuristic_params=params)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3), board=build_classic_19_tile_board(), seed=214))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {ResourceType.BRICK: 2, ResourceType.LUMBER: 0, ResourceType.WOOL: 0, ResourceType.GRAIN: 2, ResourceType.ORE: 1}
+    state.players[2].resources[ResourceType.ORE] = 1
+
+    first = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    second = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    third = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    assert isinstance(first, ProposePlayerTrade)
+    assert isinstance(second, ProposePlayerTrade)
+    assert isinstance(third, EndTurn)
+
+
+def test_v1_trade_response_accepts_direct_enable_and_rejects_critical_giveaway() -> None:
+    bot = HeuristicV1BaselineBotController(seed=5, enable_delay=False)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=215))
+    state.turn = TurnState(current_player=1, priority_player=2, step=TurnStep.ACTIONS)
+    state.players[1].victory_points = 3
+    state.players[2].resources = {ResourceType.BRICK: 0, ResourceType.LUMBER: 0, ResourceType.WOOL: 1, ResourceType.GRAIN: 2, ResourceType.ORE: 2}
+    state.player_trade = PlayerTradeState(
+        proposer_player_id=1,
+        offered_resources=((ResourceType.ORE, 1),),
+        requested_resources=((ResourceType.WOOL, 1),),
+        responder_order=(2,),
+        current_responder_index=0,
+        eligible_responders=(2,),
+        interested_responders=(),
+        phase=PlayerTradePhase.RESPONSES,
+    )
+    legal = [RespondToTradeInterested(player_id=2), RespondToTradePass(player_id=2)]
+    assert isinstance(bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal), RespondToTradeInterested)
+
+    critical_state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=217))
+    critical_state.turn = TurnState(current_player=1, priority_player=2, step=TurnStep.ACTIONS)
+    critical_state.players[1].victory_points = 3
+    critical_state.players[2].resources = {
+        ResourceType.BRICK: 1,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 0,
+    }
+    critical_state.player_trade = PlayerTradeState(
+        proposer_player_id=1,
+        offered_resources=((ResourceType.WOOL, 1),),
+        requested_resources=((ResourceType.GRAIN, 1),),
+        responder_order=(2,),
+        current_responder_index=0,
+        eligible_responders=(2,),
+        interested_responders=(),
+        phase=PlayerTradePhase.RESPONSES,
+    )
+    assert isinstance(bot.choose_action(observation=DebugObservation(state=critical_state), legal_actions=legal), RespondToTradePass)
+
+
+def test_v1_trade_response_rejects_near_winning_leader() -> None:
+    bot = HeuristicV1BaselineBotController(seed=6, enable_delay=False)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=216))
+    state.turn = TurnState(current_player=1, priority_player=2, step=TurnStep.ACTIONS)
+    state.players[1].victory_points = 9
+    state.players[2].resources = {ResourceType.BRICK: 0, ResourceType.LUMBER: 0, ResourceType.WOOL: 1, ResourceType.GRAIN: 2, ResourceType.ORE: 2}
+    state.player_trade = PlayerTradeState(
+        proposer_player_id=1,
+        offered_resources=((ResourceType.ORE, 1),),
+        requested_resources=((ResourceType.WOOL, 1),),
+        responder_order=(2,),
+        current_responder_index=0,
+        eligible_responders=(2,),
+        interested_responders=(),
+        phase=PlayerTradePhase.RESPONSES,
+    )
+    legal = [RespondToTradeInterested(player_id=2), RespondToTradePass(player_id=2)]
+    assert isinstance(bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal), RespondToTradePass)
