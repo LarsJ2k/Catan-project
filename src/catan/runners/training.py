@@ -226,18 +226,21 @@ class TrainingRunner:
                 delay_seconds=0.0,
             )
         started_at = perf_counter()
-        final_state, step_count, full_turn_count = self._game_runner.play_until_terminal_with_steps(
+        run_result = self._game_runner.play_until_terminal_with_result(
             state,
             controllers,
             max_steps=100_000,
         )
+        final_state = run_result.final_state
+        step_count = run_result.steps
+        full_turn_count = run_result.full_turn_count
         match_duration_seconds = perf_counter() - started_at
         seat_vps = tuple(_total_victory_points(final_state, pid + 1) for pid in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
         winner_bot_id: str | None = None
-        winner_seat: int | None = final_state.winner
-        if final_state.winner is not None:
+        winner_seat: int | None = final_state.winner if run_result.termination_reason == "win" else None
+        if winner_seat is not None:
             winner_bot_id = match.seat_order[final_state.winner - 1]
 
         seat_results = tuple(_build_seat_result(final_state, match.seat_order, seat_index, ranks[seat_index]) for seat_index in range(4))
@@ -251,10 +254,12 @@ class TrainingRunner:
             seat_rotation_block_id=match.seat_rotation_block_id,
             winner_bot_id=winner_bot_id,
             winner_seat=winner_seat,
+            termination_reason=run_result.termination_reason,
             match_duration_seconds=match_duration_seconds,
             turn_count=step_count,
             full_turn_count=full_turn_count,
             seat_results=seat_results,
+            debug_snapshot=run_result.stalled_debug_snapshot,
         )
 
 
