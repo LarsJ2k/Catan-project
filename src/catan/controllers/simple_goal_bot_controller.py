@@ -63,9 +63,18 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
         if not legal_actions:
             raise ValueError("SimpleGoalBotController received no legal actions.")
+
+        def _choose(action: Action) -> Action:
+            self._record_decision(
+                chosen_action=action,
+                scored_candidates=[(action, 0.0)],
+                legal_action_count=len(legal_actions),
+            )
+            return action
+
         state = observation.state if isinstance(observation, DebugObservation) else None
         if state is None:
-            return self._pick_tie(list(legal_actions))
+            return _choose(self._pick_tie(list(legal_actions)))
         self._prepare_turn_context(state)
         self._update_stall_counter(state)
         if self._enable_delay and self._delay_seconds > 0:
@@ -73,67 +82,67 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
 
         discard_placeholder = next((a for a in legal_actions if isinstance(a, DiscardResources)), None)
         if discard_placeholder is not None:
-            return self._choose_discard_action(state, discard_placeholder.player_id)
+            return _choose(self._choose_discard_action(state, discard_placeholder.player_id))
         if any(isinstance(a, MoveRobber) for a in legal_actions):
-            return self._choose_move_robber(state, legal_actions)
+            return _choose(self._choose_move_robber(state, legal_actions))
         if any(isinstance(a, RespondToTradeInterested) for a in legal_actions):
-            return self._choose_trade_response(state, legal_actions)
+            return _choose(self._choose_trade_response(state, legal_actions))
         if any(isinstance(a, ChooseYearOfPlentyResources) for a in legal_actions):
-            return self._choose_year_of_plenty(state, legal_actions)
+            return _choose(self._choose_year_of_plenty(state, legal_actions))
         if any(isinstance(a, ChooseMonopolyResource) for a in legal_actions):
-            return self._choose_monopoly_resource(state, legal_actions)
+            return _choose(self._choose_monopoly_resource(state, legal_actions))
         if any(isinstance(a, PlaceSetupSettlement) for a in legal_actions):
-            return self._choose_setup_settlement(state, legal_actions)
+            return _choose(self._choose_setup_settlement(state, legal_actions))
         if any(isinstance(a, PlaceSetupRoad) for a in legal_actions):
-            return self._choose_setup_road(state, legal_actions)
+            return _choose(self._choose_setup_road(state, legal_actions))
         if any(isinstance(a, PlayKnightCard) for a in legal_actions):
-            return next(a for a in legal_actions if isinstance(a, PlayKnightCard))
+            return _choose(next(a for a in legal_actions if isinstance(a, PlayKnightCard)))
         yop = self._playable_year_of_plenty(state, legal_actions)
         if yop is not None:
-            return yop
+            return _choose(yop)
         settlement_locations_available = self._has_immediate_settlement_location(state, legal_actions)
         rb = self._playable_road_building(state, legal_actions)
         if rb is not None:
-            return rb
+            return _choose(rb)
         monopoly = self._playable_monopoly(state, legal_actions)
         if monopoly is not None:
-            return monopoly
+            return _choose(monopoly)
 
         if settlement_locations_available:
             settlement_actions = [a for a in legal_actions if isinstance(a, BuildSettlement)]
             if settlement_actions:
-                return self._best_settlement_action(state, settlement_actions)
+                return _choose(self._best_settlement_action(state, settlement_actions))
             settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
             if settlement_trade is not None:
-                return settlement_trade
+                return _choose(settlement_trade)
             city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]
             if city_actions:
-                return self._best_city_action(state, city_actions)
-            return next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions)))
+                return _choose(self._best_city_action(state, city_actions))
+            return _choose(next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions))))
 
         city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]
         if city_actions:
-            return self._best_city_action(state, city_actions)
+            return _choose(self._best_city_action(state, city_actions))
         city_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _CITY_COST)
         if city_trade is not None:
-            return city_trade
+            return _choose(city_trade)
 
         settlement_actions = [a for a in legal_actions if isinstance(a, BuildSettlement)]
         if settlement_actions:
-            return self._best_settlement_action(state, settlement_actions)
+            return _choose(self._best_settlement_action(state, settlement_actions))
         settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
         if settlement_trade is not None:
-            return settlement_trade
+            return _choose(settlement_trade)
 
         road_action = self._road_toward_future_settlement(state, legal_actions)
         if road_action is not None:
-            return road_action
+            return _choose(road_action)
 
         dev_action = next((a for a in legal_actions if isinstance(a, BuyDevelopmentCard)), None)
         if dev_action is not None and self._should_buy_dev_card(state):
-            return dev_action
+            return _choose(dev_action)
 
-        return next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions)))
+        return _choose(next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions))))
 
     def get_last_decision(self) -> dict[str, Any] | None:
         return getattr(self, "_last_decision", None)

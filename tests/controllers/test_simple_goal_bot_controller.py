@@ -51,6 +51,18 @@ def test_settlement_priority_over_city_when_location_exists() -> None:
     assert isinstance(chosen, BuildSettlement)
 
 
+def test_records_last_decision_for_spectator_ui() -> None:
+    state = _main_turn_state(14)
+    bot = SimpleGoalBotController(seed=14, enable_delay=False)
+    legal_actions = [BuildSettlement(player_id=1, node_id=0), EndTurn(player_id=1)]
+
+    chosen = bot.choose_action(DebugObservation(state=state), legal_actions)
+    last_decision = bot.get_last_decision()
+
+    assert last_decision is not None
+    assert last_decision.get("chosen_action") == chosen
+
+
 def test_settlement_priority_when_city_not_possible() -> None:
     state = _main_turn_state(21)
     bot = SimpleGoalBotController(seed=2, enable_delay=False)
