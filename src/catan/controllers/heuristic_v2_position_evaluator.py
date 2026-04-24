@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from time import perf_counter
 
 from catan.controllers.heuristic_v1_baseline_bot_controller import _TOKEN_PIP_SCORES, _TERRAIN_TO_RESOURCE
 from catan.controllers.heuristic_params import HeuristicScoringParams
+from catan.core.models.board import Board
 from catan.core.models.enums import ResourceType, TerrainType
 from catan.core.models.state import GameState
 
@@ -16,9 +18,32 @@ class PositionEvaluation:
     timings: dict[str, float]
 
 
+@dataclass(frozen=True)
+class NodeStaticData:
+    resources: tuple[ResourceType, ...]
+    pip_score: float
+    resource_diversity: int
+    base_quality: float
+    port_value: float
+
+
+@dataclass(frozen=True)
+class BoardEvaluationCache:
+    tile_by_id: dict[int, object]
+    node_data: dict[int, NodeStaticData]
+    edge_nodes: dict[int, tuple[int, int]]
+    node_neighbors: dict[int, tuple[int, ...]]
+    node_adjacent_edges: dict[int, tuple[int, ...]]
+
+
+_BOARD_CACHE: dict[int, BoardEvaluationCache] = {}
+
+
 class HeuristicV2PositionEvaluator:
     def evaluate(self, state: GameState, player_id: int, params: HeuristicScoringParams) -> PositionEvaluation:
         timings: dict[str, float] = {}
+        board_cache = self._get_board_cache(state.board)
+
         t0 = perf_counter()
         player = state.players[player_id]
         total_vp = player.victory_points
@@ -32,11 +57,12 @@ class HeuristicV2PositionEvaluator:
         production_by_resource: dict[ResourceType, float] = {resource: 0.0 for resource in ResourceType}
         city_targets = 0.0
         blocked_pips = 0.0
+
         for node_id, owner in state.placed.settlements.items():
             if owner != player_id:
                 continue
             for tile_id in state.board.node_to_adjacent_tiles.get(node_id, ()): 
-                tile = self._tile_by_id(state, tile_id)
+                tile = board_cache.tile_by_id[tile_id]
                 resource = _TERRAIN_TO_RESOURCE.get(tile.terrain)
                 if resource is None:
                     continue
@@ -51,7 +77,7 @@ class HeuristicV2PositionEvaluator:
             if owner != player_id:
                 continue
             for tile_id in state.board.node_to_adjacent_tiles.get(node_id, ()): 
-                tile = self._tile_by_id(state, tile_id)
+                tile = board_cache.tile_by_id[tile_id]
                 resource = _TERRAIN_TO_RESOURCE.get(tile.terrain)
                 if resource is None:
                     continue
@@ -75,7 +101,7 @@ class HeuristicV2PositionEvaluator:
         timings["resource_balance"] = perf_counter() - t0
 
         t0 = perf_counter()
-        expansion_potential = self._expansion_potential(state, player_id)
+        expansion_potential = self._expansion_potential(state, player_id, board_cache)
         timings["expansion"] = perf_counter() - t0
 
         t0 = perf_counter()
@@ -134,11 +160,77 @@ class HeuristicV2PositionEvaluator:
         }
         return PositionEvaluation(total_score=sum(components.values()), components=components, timings=timings)
 
+    def _get_board_cache(self, board: Board) -> BoardEvaluationCache:
+        board_key = id(board)
+        cached = _BOARD_CACHE.get(board_key)
+        if cached is not None:
+            return cached
+
+        tile_by_id = {tile.id: tile for tile in board.tiles}
+        node_data: dict[int, NodeStaticData] = {}
+        for node_id in board.nodes:
+            resources: list[ResourceType] = []
+            pip_score = 0.0
+            for tile_id in board.node_to_adjacent_tiles.get(node_id, ()): 
+                tile = tile_by_id[tile_id]
+                resource = _TERRAIN_TO_RESOURCE.get(tile.terrain)
+                if resource is not None:
+                    resources.append(resource)
+                if tile.terrain != TerrainType.DESERT:
+                    pip_score += _TOKEN_PIP_SCORES.get(tile.number_token or 0, 0)
+
+            node_data[node_id] = NodeStaticData(
+                resources=tuple(resources),
+                pip_score=pip_score,
+                resource_diversity=len(set(resources)),
+                base_quality=pip_score + (len(set(resources)) * 0.45),
+                port_value=float(len(board.node_to_ports.get(node_id, ())) * 1.5),
+            )
+
+        board_cache = BoardEvaluationCache(
+            tile_by_id=tile_by_id,
+            node_data=node_data,
+            edge_nodes=dict(board.edge_to_adjacent_nodes),
+            node_neighbors={node_id: board.node_neighbors(node_id) for node_id in board.nodes},
+            node_adjacent_edges=dict(board.node_to_adjacent_edges),
+        )
+        _BOARD_CACHE[board_key] = board_cache
+        return board_cache
+
     def _profile_score(self, production: dict[ResourceType, float], profile: set[ResourceType]) -> float:
         present = sum(1 for resource in profile if production.get(resource, 0.0) > 0)
         return present + (sum(production.get(resource, 0.0) for resource in profile) * 0.08)
 
-    def _expansion_potential(self, state: GameState, player_id: int) -> float:
+    def _expansion_potential(self, state: GameState, player_id: int, board_cache: BoardEvaluationCache) -> float:
+        occupied = set(state.placed.settlements) | set(state.placed.cities)
+        anchors = self._player_anchors(state, player_id, board_cache)
+        if not anchors:
+            return 0.0
+
+        distances = self._frontier_distances(state, player_id, anchors, board_cache)
+        if not distances:
+            return 0.0
+
+        open_nodes: list[tuple[int, float]] = []
+        for node_id, distance in distances.items():
+            if node_id in occupied:
+                continue
+            if any(neighbor in occupied for neighbor in board_cache.node_neighbors.get(node_id, ())):
+                continue
+            quality = board_cache.node_data[node_id].pip_score
+            open_nodes.append((distance, quality))
+
+        if not open_nodes:
+            return 0.0
+
+        open_nodes.sort(key=lambda item: item[0] - (item[1] * 0.02))
+        best = open_nodes[0][1] - open_nodes[0][0] * 2.0
+        second = 0.0
+        if len(open_nodes) > 1:
+            second = open_nodes[1][1] - open_nodes[1][0] * 1.2
+        return max(0.0, best + (second * 0.55))
+
+    def _expansion_potential_uncached(self, state: GameState, player_id: int) -> float:
         anchors = set()
         for edge_id, owner in state.placed.roads.items():
             if owner == player_id:
@@ -172,7 +264,53 @@ class HeuristicV2PositionEvaluator:
             second = open_nodes[1][1] - open_nodes[1][0] * 1.2
         return max(0.0, best + (second * 0.55))
 
-    def _port_value(self, state: GameState, player_id: int, production: dict[ResourceType, float]) -> float:
+    def _player_anchors(self, state: GameState, player_id: int, board_cache: BoardEvaluationCache) -> set[int]:
+        anchors = set()
+        for edge_id, owner in state.placed.roads.items():
+            if owner == player_id:
+                anchors.update(board_cache.edge_nodes[edge_id])
+        for node_id, owner in state.placed.settlements.items():
+            if owner == player_id:
+                anchors.add(node_id)
+        for node_id, owner in state.placed.cities.items():
+            if owner == player_id:
+                anchors.add(node_id)
+        return anchors
+
+    def _frontier_distances(
+        self,
+        state: GameState,
+        player_id: int,
+        anchors: set[int],
+        board_cache: BoardEvaluationCache,
+    ) -> dict[int, int]:
+        distances: dict[int, int] = {anchor: 0 for anchor in anchors}
+        queue: deque[int] = deque(anchors)
+
+        while queue:
+            node_id = queue.popleft()
+            distance = distances[node_id]
+            for edge_id in board_cache.node_adjacent_edges.get(node_id, ()): 
+                a, b = board_cache.edge_nodes[edge_id]
+                nxt = b if a == node_id else a
+                edge_owner = state.placed.roads.get(edge_id)
+                if edge_owner is not None and edge_owner != player_id:
+                    continue
+                edge_cost = 0 if edge_owner == player_id else 1
+                candidate = distance + edge_cost
+                previous = distances.get(nxt)
+                if previous is None or candidate < previous:
+                    distances[nxt] = candidate
+                    queue.append(nxt)
+
+        return distances
+
+    def _port_value(
+        self,
+        state: GameState,
+        player_id: int,
+        production: dict[ResourceType, float],
+    ) -> float:
         value = 0.0
         for node_id, owner in state.placed.settlements.items():
             if owner != player_id:
@@ -206,6 +344,7 @@ class HeuristicV2PositionEvaluator:
         dev_need += max(0, 1 - resources.get(ResourceType.ORE, 0))
         return max(0.0, 5.0 - settlement_need) + max(0.0, 4.0 - city_need * 0.8) + max(0.0, 3.0 - dev_need * 0.7)
 
+    # kept for tests / parity checks against cached values
     def _distance_from_anchors(self, state: GameState, anchors: set[int], target_node: int, player_id: int) -> int | None:
         frontier = [(anchor, 0) for anchor in anchors]
         seen = set(anchors)
@@ -246,7 +385,8 @@ class HeuristicV2PositionEvaluator:
         return all(neighbor not in state.placed.settlements and neighbor not in state.placed.cities for neighbor in state.board.node_neighbors(node_id))
 
     def _tile_by_id(self, state: GameState, tile_id: int):
-        for tile in state.board.tiles:
-            if tile.id == tile_id:
-                return tile
-        raise KeyError(f"Unknown tile id: {tile_id}")
+        cache = self._get_board_cache(state.board)
+        tile = cache.tile_by_id.get(tile_id)
+        if tile is None:
+            raise KeyError(f"Unknown tile id: {tile_id}")
+        return tile

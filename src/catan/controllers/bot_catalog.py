@@ -359,6 +359,7 @@ def build_bot_controller_from_definition(
     seed: int | None = None,
     delay_seconds: float = 1.2,
     storage_path: Path | None = None,
+    enable_v2_profiling: bool = False,
 ) -> Controller:
     definition = get_bot_definition(bot_id, storage_path=storage_path)
     if definition is None:
@@ -368,4 +369,5 @@ def build_bot_controller_from_definition(
         enable_bot_delay=enable_bot_delay,
         seed=seed,
         delay_seconds=delay_seconds,
+        enable_v2_profiling=enable_v2_profiling,
     )
