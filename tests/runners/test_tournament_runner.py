@@ -204,6 +204,7 @@ def test_aggregation_correctness() -> None:
             seat_rotation_block_id=0,
             winner_bot_id=ControllerType.RANDOM_BOT.value,
             winner_seat=1,
+            match_duration_seconds=12.5,
             turn_count=120,
             full_turn_count=30,
             seat_results=(
@@ -225,8 +226,7 @@ def test_aggregation_correctness() -> None:
                     bank_trades_count=2,
                     player_trades_proposed=1,
                     player_trades_completed=1,
-                    total_resources_in_hand=3,
-                    total_dev_cards_in_hand=1,
+                    total_resources_earned=14,
                 ),
                 MatchSeatResult(
                     bot_id=ControllerType.HEURISTIC_BOT.value,
@@ -246,8 +246,7 @@ def test_aggregation_correctness() -> None:
                     bank_trades_count=1,
                     player_trades_proposed=2,
                     player_trades_completed=0,
-                    total_resources_in_hand=2,
-                    total_dev_cards_in_hand=0,
+                    total_resources_earned=11,
                 ),
                 MatchSeatResult(
                     bot_id=ControllerType.RANDOM_BOT.value,
@@ -267,8 +266,7 @@ def test_aggregation_correctness() -> None:
                     bank_trades_count=0,
                     player_trades_proposed=0,
                     player_trades_completed=0,
-                    total_resources_in_hand=1,
-                    total_dev_cards_in_hand=2,
+                    total_resources_earned=9,
                 ),
                 MatchSeatResult(
                     bot_id=ControllerType.HEURISTIC_BOT.value,
@@ -288,8 +286,7 @@ def test_aggregation_correctness() -> None:
                     bank_trades_count=0,
                     player_trades_proposed=1,
                     player_trades_completed=0,
-                    total_resources_in_hand=0,
-                    total_dev_cards_in_hand=0,
+                    total_resources_earned=6,
                 ),
             ),
         ),
@@ -335,7 +332,10 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert len(summary_rows) - 1 == len(result.aggregates)
     assert "match_id" in match_rows[0]
     assert "full_turn_count" in match_rows[0]
+    assert "match_duration_seconds" in match_rows[0]
     assert "seat1_vp_total" in match_rows[0]
+    assert "seat1_total_resources_earned" in match_rows[0]
+    assert "seat1_total_resources_in_hand" not in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
 
 

@@ -6,6 +6,7 @@ from itertools import combinations
 import json
 from pathlib import Path
 from statistics import mean
+from time import perf_counter
 from typing import Callable, Iterable
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -73,8 +74,7 @@ class MatchSeatResult:
     bank_trades_count: int
     player_trades_proposed: int
     player_trades_completed: int
-    total_resources_in_hand: int
-    total_dev_cards_in_hand: int
+    total_resources_earned: int
 
 
 @dataclass(frozen=True)
@@ -88,6 +88,7 @@ class MatchResult:
     seat_rotation_block_id: int
     winner_bot_id: str | None
     winner_seat: int | None
+    match_duration_seconds: float
     turn_count: int
     full_turn_count: int
     seat_results: tuple[MatchSeatResult, MatchSeatResult, MatchSeatResult, MatchSeatResult]
@@ -273,11 +274,13 @@ class HeadlessTournamentRunner:
             enable_bot_delay=False,
             enable_v2_profiling=config.enable_v2_profiling,
         )
+        started_at = perf_counter()
         final_state, step_count, full_turn_count = self._game_runner.play_until_terminal_with_steps(
             state,
             controllers,
             max_steps=100_000,
         )
+        match_duration_seconds = perf_counter() - started_at
         seat_vps = tuple(_total_victory_points(final_state, idx + 1) for idx in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
@@ -299,6 +302,7 @@ class HeadlessTournamentRunner:
             seat_rotation_block_id=match.seat_rotation_block_id,
             winner_bot_id=winner_bot_id,
             winner_seat=winner_seat,
+            match_duration_seconds=match_duration_seconds,
             turn_count=step_count,
             full_turn_count=full_turn_count,
             seat_results=seat_results,
@@ -327,8 +331,7 @@ def _build_seat_result(state: GameState, seat_order: tuple[str, ...], seat_index
         bank_trades_count=player.bank_trades_count,
         player_trades_proposed=player.player_trades_proposed,
         player_trades_completed=player.player_trades_completed,
-        total_resources_in_hand=sum(player.resources.values()),
-        total_dev_cards_in_hand=sum(player.dev_cards.values()),
+        total_resources_earned=player.total_resources_earned,
     )
 
 
@@ -425,6 +428,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                     "seat_rotation_block_id": match.seat_rotation_block_id,
                     "winner_bot_id": match.winner_bot_id,
                     "winner_seat": match.winner_seat,
+                    "match_duration_seconds": match.match_duration_seconds,
                     "turn_count": match.turn_count,
                     "full_turn_count": match.full_turn_count,
                     "seat_results": [
@@ -447,8 +451,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                             "bank_trades_count": seat_result.bank_trades_count,
                             "player_trades_proposed": seat_result.player_trades_proposed,
                             "player_trades_completed": seat_result.player_trades_completed,
-                            "total_resources_in_hand": seat_result.total_resources_in_hand,
-                            "total_dev_cards_in_hand": seat_result.total_dev_cards_in_hand,
+                            "total_resources_earned": seat_result.total_resources_earned,
                         }
                         for seat_idx, seat_result in enumerate(match.seat_results, start=1)
                     ],
@@ -509,6 +512,7 @@ def _match_csv_headers() -> list[str]:
         "seat_rotation_block_id",
         "winner_bot_id",
         "winner_seat",
+        "match_duration_seconds",
         "turn_count",
         "full_turn_count",
     ]
@@ -533,8 +537,7 @@ def _match_csv_headers() -> list[str]:
                 f"{prefix}_bank_trades_count",
                 f"{prefix}_player_trades_proposed",
                 f"{prefix}_player_trades_completed",
-                f"{prefix}_total_resources_in_hand",
-                f"{prefix}_total_dev_cards_in_hand",
+                f"{prefix}_total_resources_earned",
             ]
         )
     return headers
@@ -551,6 +554,7 @@ def _match_csv_row(match: MatchResult) -> list[str | int | bool]:
         match.seat_rotation_block_id,
         "" if match.winner_bot_id is None else match.winner_bot_id,
         "" if match.winner_seat is None else match.winner_seat,
+        match.match_duration_seconds,
         match.turn_count,
         match.full_turn_count,
     ]
@@ -574,8 +578,7 @@ def _match_csv_row(match: MatchResult) -> list[str | int | bool]:
                 seat_result.bank_trades_count,
                 seat_result.player_trades_proposed,
                 seat_result.player_trades_completed,
-                seat_result.total_resources_in_hand,
-                seat_result.total_dev_cards_in_hand,
+                seat_result.total_resources_earned,
             ]
         )
     return row

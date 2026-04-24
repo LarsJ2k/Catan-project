@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from random import Random
+from time import perf_counter
 from catan.controllers.bot_catalog import (
     BotDefinition,
     build_bot_controller_from_bot_definition,
@@ -224,11 +225,13 @@ class TrainingRunner:
                 seed=match.seed + player_id,
                 delay_seconds=0.0,
             )
+        started_at = perf_counter()
         final_state, step_count, full_turn_count = self._game_runner.play_until_terminal_with_steps(
             state,
             controllers,
             max_steps=100_000,
         )
+        match_duration_seconds = perf_counter() - started_at
         seat_vps = tuple(_total_victory_points(final_state, pid + 1) for pid in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
@@ -248,6 +251,7 @@ class TrainingRunner:
             seat_rotation_block_id=match.seat_rotation_block_id,
             winner_bot_id=winner_bot_id,
             winner_seat=winner_seat,
+            match_duration_seconds=match_duration_seconds,
             turn_count=step_count,
             full_turn_count=full_turn_count,
             seat_results=seat_results,
