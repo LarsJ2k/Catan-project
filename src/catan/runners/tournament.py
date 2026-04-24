@@ -89,6 +89,7 @@ class MatchResult:
     winner_bot_id: str | None
     winner_seat: int | None
     turn_count: int
+    full_turn_count: int
     seat_results: tuple[MatchSeatResult, MatchSeatResult, MatchSeatResult, MatchSeatResult]
 
     @property
@@ -272,7 +273,11 @@ class HeadlessTournamentRunner:
             enable_bot_delay=False,
             enable_v2_profiling=config.enable_v2_profiling,
         )
-        final_state, step_count = self._game_runner.play_until_terminal_with_steps(state, controllers, max_steps=100_000)
+        final_state, step_count, full_turn_count = self._game_runner.play_until_terminal_with_steps(
+            state,
+            controllers,
+            max_steps=100_000,
+        )
         seat_vps = tuple(_total_victory_points(final_state, idx + 1) for idx in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
@@ -295,6 +300,7 @@ class HeadlessTournamentRunner:
             winner_bot_id=winner_bot_id,
             winner_seat=winner_seat,
             turn_count=step_count,
+            full_turn_count=full_turn_count,
             seat_results=seat_results,
         )
 
@@ -420,6 +426,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                     "winner_bot_id": match.winner_bot_id,
                     "winner_seat": match.winner_seat,
                     "turn_count": match.turn_count,
+                    "full_turn_count": match.full_turn_count,
                     "seat_results": [
                         {
                             "seat": seat_idx,
@@ -503,6 +510,7 @@ def _match_csv_headers() -> list[str]:
         "winner_bot_id",
         "winner_seat",
         "turn_count",
+        "full_turn_count",
     ]
     for seat in range(1, 5):
         prefix = f"seat{seat}"
@@ -544,6 +552,7 @@ def _match_csv_row(match: MatchResult) -> list[str | int | bool]:
         "" if match.winner_bot_id is None else match.winner_bot_id,
         "" if match.winner_seat is None else match.winner_seat,
         match.turn_count,
+        match.full_turn_count,
     ]
     for seat_result in match.seat_results:
         row.extend(

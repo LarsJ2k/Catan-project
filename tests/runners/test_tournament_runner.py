@@ -143,6 +143,7 @@ def test_winning_match_reports_total_vp_for_winner() -> None:
     assert winner is not None
     assert max(result.matches[0].final_vp_by_seat) >= 10
     assert result.matches[0].turn_count > 0
+    assert result.matches[0].full_turn_count >= 0
     assert result.matches[0].winner_seat in (1, 2, 3, 4)
     assert all(seat.bot_id for seat in result.matches[0].seat_results)
     assert all(seat.vp_total >= seat.vp_visible for seat in result.matches[0].seat_results)
@@ -204,6 +205,7 @@ def test_aggregation_correctness() -> None:
             winner_bot_id=ControllerType.RANDOM_BOT.value,
             winner_seat=1,
             turn_count=120,
+            full_turn_count=30,
             seat_results=(
                 MatchSeatResult(
                     bot_id=ControllerType.RANDOM_BOT.value,
@@ -332,6 +334,7 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert len(match_rows) - 1 == len(result.matches)
     assert len(summary_rows) - 1 == len(result.aggregates)
     assert "match_id" in match_rows[0]
+    assert "full_turn_count" in match_rows[0]
     assert "seat1_vp_total" in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
 
