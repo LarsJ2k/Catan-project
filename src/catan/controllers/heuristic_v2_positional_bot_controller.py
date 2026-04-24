@@ -105,7 +105,8 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         ranked_details: list[dict[str, Any]] = []
         best_total: float | None = None
         best_actions: list[Action] = []
-        current_eval = self._evaluator.evaluate(state, state.turn.current_player, self._params)
+        evaluation_player = state.turn.current_player if state.turn is not None else shortlisted[0][0].player_id
+        current_eval = self._evaluator.evaluate(state, evaluation_player, self._params)
         current_position_score = current_eval.total_score
 
         for action, action_score in shortlisted:
