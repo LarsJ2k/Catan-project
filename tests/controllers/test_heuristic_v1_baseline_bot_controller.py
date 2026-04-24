@@ -300,6 +300,23 @@ def test_v1_player_trade_proposal_limit_can_be_two() -> None:
     assert isinstance(third, EndTurn)
 
 
+def test_v1_successful_trade_increases_player_trade_proposal_limit_by_one() -> None:
+    bot = HeuristicV1BaselineBotController(seed=42, enable_delay=False)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3), board=build_classic_19_tile_board(), seed=2142))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {ResourceType.BRICK: 2, ResourceType.LUMBER: 0, ResourceType.WOOL: 0, ResourceType.GRAIN: 2, ResourceType.ORE: 1}
+    state.players[2].resources[ResourceType.ORE] = 1
+
+    first = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    assert isinstance(first, ProposePlayerTrade)
+
+    state.players[1].player_trades_completed += 1
+    second = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    third = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1)])
+    assert isinstance(second, ProposePlayerTrade)
+    assert isinstance(third, EndTurn)
+
+
 def test_v1_trade_response_accepts_direct_enable_and_rejects_critical_giveaway() -> None:
     bot = HeuristicV1BaselineBotController(seed=5, enable_delay=False)
     state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=215))
