@@ -31,6 +31,7 @@ class BotDefinition:
     base_controller_type: ControllerType
     description: str = ""
     parameters: Mapping[str, float | int | str | bool] = field(default_factory=dict)
+    metadata: Mapping[str, float | int | str | bool] = field(default_factory=dict)
     is_builtin: bool = False
 
 
@@ -212,6 +213,7 @@ def _load_custom_bot_definitions(*, storage_path: Path | None = None) -> tuple[B
                         base_controller_type,
                         dict(entry.get("parameters", {})),
                     ),
+                    metadata=dict(entry.get("metadata", {})),
                     is_builtin=False,
                 )
             )
@@ -242,6 +244,7 @@ def _write_custom_bot_definitions(definitions: tuple[BotDefinition, ...], *, sto
             "base_controller_type": definition.base_controller_type.value,
             "description": definition.description,
             "parameters": dict(definition.parameters),
+            "metadata": dict(definition.metadata),
         }
         for definition in definitions
     ]
@@ -254,6 +257,7 @@ def create_custom_bot_definition(
     base_bot_id: str,
     description: str,
     parameters: Mapping[str, float | int | str | bool],
+    metadata: Mapping[str, float | int | str | bool] | None = None,
     storage_path: Path | None = None,
 ) -> BotDefinition:
     trimmed = name.strip()
@@ -280,6 +284,7 @@ def create_custom_bot_definition(
         base_controller_type=base_definition.base_controller_type,
         description=description.strip(),
         parameters=merge_with_family_defaults(base_definition.base_controller_type, parameters),
+        metadata=dict(metadata or {}),
         is_builtin=False,
     )
     existing_custom = _load_custom_bot_definitions(storage_path=storage_path)
@@ -296,17 +301,13 @@ def delete_custom_bot_definition(bot_id: str, *, storage_path: Path | None = Non
     return True
 
 
-def build_bot_controller_from_definition(
-    bot_id: str,
+def build_bot_controller_from_bot_definition(
+    definition: BotDefinition,
     *,
     enable_bot_delay: bool,
     seed: int | None = None,
     delay_seconds: float = 1.2,
-    storage_path: Path | None = None,
 ) -> Controller:
-    definition = get_bot_definition(bot_id, storage_path=storage_path)
-    if definition is None:
-        raise ValueError(f"Unknown bot definition id: {bot_id}")
     parameters = merge_with_family_defaults(definition.base_controller_type, dict(definition.parameters))
     if definition.base_controller_type == ControllerType.RANDOM_BOT:
         return RandomBotController(seed=seed, delay_seconds=delay_seconds, enable_delay=enable_bot_delay)
@@ -346,3 +347,22 @@ def build_bot_controller_from_definition(
             heuristic_params=HeuristicScoringParams.from_mapping(parameters),
         )
     raise ValueError(f"Unsupported bot base type: {definition.base_controller_type}")
+
+
+def build_bot_controller_from_definition(
+    bot_id: str,
+    *,
+    enable_bot_delay: bool,
+    seed: int | None = None,
+    delay_seconds: float = 1.2,
+    storage_path: Path | None = None,
+) -> Controller:
+    definition = get_bot_definition(bot_id, storage_path=storage_path)
+    if definition is None:
+        raise ValueError(f"Unknown bot definition id: {bot_id}")
+    return build_bot_controller_from_bot_definition(
+        definition,
+        enable_bot_delay=enable_bot_delay,
+        seed=seed,
+        delay_seconds=delay_seconds,
+    )
