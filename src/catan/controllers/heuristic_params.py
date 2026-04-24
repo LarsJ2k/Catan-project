@@ -50,6 +50,13 @@ class HeuristicScoringParams:
     dev_buy_weight: float = 0.0
     knight_play_weight: float = 0.0
     bank_trade_direct_build_bonus: float = 10.0
+    bank_trade_progress_threshold: float = 1.0
+    bank_trade_no_progress_penalty: float = -60.0
+    bank_trade_chain_penalty: float = -18.0
+    bank_trade_enable_road_requires_target: bool = True
+    bank_trade_enable_dev_bonus: float = 14.0
+    bank_trade_enable_city_bonus: float = 32.0
+    bank_trade_enable_settlement_bonus: float = 30.0
     trade_interest_threshold: float = 0.0
     trade_scarcity_penalty: float = 0.5
     setup_expansion_profile_bonus: float = 0.0

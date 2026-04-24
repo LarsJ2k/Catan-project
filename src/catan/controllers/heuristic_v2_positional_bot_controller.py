@@ -9,6 +9,7 @@ from catan.controllers.heuristic_v2_profiling import GLOBAL_V2_PROFILING_STATS, 
 from catan.core.engine import apply_action
 from catan.core.models.action import (
     Action,
+    BankTrade,
     BuyDevelopmentCard,
     DiscardResources,
     ProposePlayerTrade,
@@ -104,9 +105,11 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         ranked_details: list[dict[str, Any]] = []
         best_total: float | None = None
         best_actions: list[Action] = []
+        current_eval = self._evaluator.evaluate(state, state.turn.current_player, self._params)
+        current_position_score = current_eval.total_score
 
         for action, action_score in shortlisted:
-            position_score, summary, candidate_profile = self._evaluate_after_action(state, action)
+            position_score, summary, candidate_profile = self._evaluate_after_action(state, action, current_position_score)
             profile.candidate_simulation_time_s += candidate_profile.candidate_simulation_time_s
             profile.state_copy_time_s += candidate_profile.state_copy_time_s
             profile.apply_action_time_s += candidate_profile.apply_action_time_s
@@ -126,6 +129,10 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
                 "combined_score": combined,
                 "summary": summary,
             }
+            if isinstance(action, BankTrade):
+                note = self._score_notes.get(id(action))
+                if note:
+                    detail["summary"] = f"{summary} | {note}" if summary else note
             ranked_details.append(detail)
             if best_total is None or combined > best_total:
                 best_total = combined
@@ -152,7 +159,7 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             return {action: 50.0 for action, _ in scored_actions}
         return {action: ((score - low) / (high - low)) * 100.0 for action, score in scored_actions}
 
-    def _evaluate_after_action(self, state: GameState, action: Action) -> tuple[float, str, V2DecisionProfile]:
+    def _evaluate_after_action(self, state: GameState, action: Action, current_position_score: float) -> tuple[float, str, V2DecisionProfile]:
         profile = V2DecisionProfile()
         candidate_start = perf_counter()
         player_id = action.player_id
@@ -182,6 +189,17 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             summary = self._summarize_components(evaluation.components)
             profile.explanation_time_s = perf_counter() - summary_start
 
+            profile.candidate_simulation_time_s = perf_counter() - candidate_start
+            if isinstance(action, BankTrade):
+                delta = evaluation.total_score - current_position_score
+                if delta <= self._params.bank_trade_progress_threshold:
+                    profile.candidate_simulation_time_s = perf_counter() - candidate_start
+                    return (
+                        evaluation.total_score + self._params.bank_trade_no_progress_penalty,
+                        f"delta {delta:+.2f} below threshold",
+                        profile,
+                    )
+                summary = f"delta {delta:+.2f}; {summary}" if summary else f"delta {delta:+.2f}"
             profile.candidate_simulation_time_s = perf_counter() - candidate_start
             return evaluation.total_score, summary, profile
         except Exception:
