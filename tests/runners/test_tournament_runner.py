@@ -467,11 +467,43 @@ def test_no_progress_loop_sets_termination_reason_stalled(monkeypatch) -> None:
         state,
         controllers,
         max_steps=100,
-        stuck_config=StuckGameConfig(no_vp_change_step_limit=999, no_progress_step_limit=8, low_impact_cycle_window=8),
+        stuck_config=StuckGameConfig(
+            min_full_turns_before_stall_checks=0,
+            no_vp_change_step_limit=999,
+            no_progress_step_limit=8,
+            low_impact_cycle_window=8,
+        ),
     )
 
     assert result.termination_reason == "stalled"
     assert result.stalled_debug_snapshot is not None
+
+
+def test_stall_detection_waits_until_minimum_full_turns(monkeypatch) -> None:
+    board = build_classic_19_tile_board(seed=22)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3, 4), board=board, seed=22))
+    runner = HeadlessRunner()
+
+    monkeypatch.setattr("catan.runners.headless_runner.is_terminal", lambda _state: False)
+    monkeypatch.setattr("catan.runners.headless_runner.get_legal_actions", lambda _state, pid: (EndTurn(player_id=pid),))
+    monkeypatch.setattr("catan.runners.headless_runner.apply_action", lambda game_state, _action: game_state)
+
+    controllers = {pid: _DeterministicController() for pid in range(1, 5)}
+    result = runner.play_until_terminal_with_result(
+        state,
+        controllers,
+        max_steps=130,
+        stuck_config=StuckGameConfig(
+            min_full_turns_before_stall_checks=30,
+            no_vp_change_step_limit=999,
+            no_progress_step_limit=8,
+            low_impact_cycle_window=8,
+        ),
+    )
+
+    assert result.termination_reason == "stalled"
+    assert result.full_turn_count >= 30
+    assert result.steps >= 120
 
 
 def test_completed_game_sets_termination_reason_win() -> None:
