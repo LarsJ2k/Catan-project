@@ -5,6 +5,7 @@ from catan.controllers.heuristic_params import HeuristicScoringParams
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import apply_action, create_initial_state, get_legal_actions
 from catan.core.models.action import (
+    BankTrade,
     BuildCity,
     BuildRoad,
     BuildSettlement,
@@ -237,3 +238,19 @@ def test_heuristic_param_change_can_change_choice_deterministically() -> None:
     assert isinstance(passive_choice_a, EndTurn)
     assert passive_choice_a == passive_choice_b
     assert isinstance(active_choice, BuildSettlement)
+
+
+def test_heuristic_rejects_no_progress_bank_trade() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=161))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 4,
+        ResourceType.GRAIN: 0,
+        ResourceType.ORE: 0,
+    }
+    bot = HeuristicBotController(seed=4, enable_delay=False)
+    trade = BankTrade(player_id=1, offer_resource=ResourceType.WOOL, request_resource=ResourceType.BRICK, trade_rate=4)
+    chosen = bot.choose_action(DebugObservation(state=state), [trade, EndTurn(player_id=1)])
+    assert isinstance(chosen, EndTurn)

@@ -30,7 +30,7 @@ from catan.core.models.action import (
     RollDice,
 )
 from catan.core.models.board import NodeId
-from catan.core.models.enums import ResourceType, TerrainType
+from catan.core.models.enums import ResourceType, TerrainType, TurnStep
 from catan.core.models.state import GameState
 from catan.core.observer import DebugObservation, Observation
 
@@ -97,6 +97,9 @@ class HeuristicV1BaselineBotController:
             bank_trade_direct_build_bonus=34.0,
         )
         self._resource_values = self._params.resource_values()
+        self._score_notes: dict[int, str] = {}
+        self._bank_trades_this_turn = 0
+        self._last_turn_player_id: int | None = None
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
         candidates = [action for action in legal_actions if not isinstance(action, ProposePlayerTrade)]
@@ -108,6 +111,8 @@ class HeuristicV1BaselineBotController:
             return fallback
 
         state = observation.state if isinstance(observation, DebugObservation) else None
+        self._prepare_turn_context(state)
+        self._score_notes = {}
         if state is not None:
             discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
             if discard_placeholder is not None:
@@ -129,6 +134,8 @@ class HeuristicV1BaselineBotController:
         assert best_score is not None
         near_best = [action for action, score in scored_candidates if (best_score - score) <= 0.25]
         chosen = near_best[self._rng.randrange(len(near_best))]
+        if isinstance(chosen, BankTrade):
+            self._bank_trades_this_turn += 1
         self._record_decision(chosen_action=chosen, scored_candidates=scored_candidates, legal_action_count=len(candidates))
         return chosen
 
@@ -146,6 +153,9 @@ class HeuristicV1BaselineBotController:
             "top_candidates": ranked[:3],
             "legal_action_count": legal_action_count,
         }
+        notes = [{"action": action, "note": self._score_notes[id(action)]} for action, _ in ranked[:3] if id(action) in self._score_notes]
+        if notes:
+            self._last_decision["candidate_notes"] = notes
 
     def _score_action(self, action: Action, state: GameState | None) -> float:
         if self._is_immediate_win(action, state):
@@ -383,17 +393,83 @@ class HeuristicV1BaselineBotController:
         resources_after[action.offer_resource] = max(0, resources_after.get(action.offer_resource, 0) - action.trade_rate)
         resources_after[action.request_resource] = resources_after.get(action.request_resource, 0) + 1
 
-        enable_bonus = 0.0
-        if self._can_afford(resources_after, _SETTLEMENT_COST):
-            enable_bonus = self._params.bank_trade_direct_build_bonus
-        elif self._can_afford(resources_after, _CITY_COST):
-            enable_bonus = self._params.bank_trade_direct_build_bonus - 2.0
-        elif self._can_afford(resources_after, _DEV_COST):
-            enable_bonus = 18.0
+        resources_before = dict(player.resources)
+        enables_city = self._can_afford(resources_after, _CITY_COST)
+        enables_settlement = self._can_afford(resources_after, _SETTLEMENT_COST)
+        enables_dev = self._can_afford(resources_after, _DEV_COST)
+        road_enabled = resources_after.get(ResourceType.BRICK, 0) >= 1 and resources_after.get(ResourceType.LUMBER, 0) >= 1
+        road_progress = self._best_road_progress_gain(state, action.player_id)
+        road_ok = road_enabled and (
+            (not self._params.bank_trade_enable_road_requires_target) or road_progress >= self._params.bank_trade_progress_threshold
+        )
 
-        if enable_bonus == 0.0:
-            return -6.0 + favorable_rate + scarcity
-        return self._params.bank_trade_base_score + favorable_rate + scarcity + enable_bonus
+        missing_before = (
+            self._missing_resources(resources_before, _CITY_COST),
+            self._missing_resources(resources_before, _SETTLEMENT_COST),
+            self._missing_resources(resources_before, _DEV_COST),
+        )
+        missing_after = (
+            self._missing_resources(resources_after, _CITY_COST),
+            self._missing_resources(resources_after, _SETTLEMENT_COST),
+            self._missing_resources(resources_after, _DEV_COST),
+        )
+        plan_progress = min(missing_after) < min(missing_before) and missing_after[0] <= missing_before[0]
+
+        bonus = 0.0
+        reasons: list[str] = []
+        if enables_city:
+            bonus += self._params.bank_trade_enable_city_bonus
+            reasons.append("enables City")
+        if enables_settlement:
+            bonus += self._params.bank_trade_enable_settlement_bonus
+            reasons.append("enables Settlement")
+        if enables_dev:
+            bonus += self._params.bank_trade_enable_dev_bonus
+            reasons.append("enables Dev")
+        if road_ok:
+            bonus += self._params.bank_trade_direct_build_bonus
+            reasons.append("enables Road target")
+        if plan_progress and not reasons:
+            bonus += self._params.bank_trade_progress_threshold * 3.0
+            reasons.append("near-term plan improved")
+
+        chain_penalty = 0.0
+        if self._bank_trades_this_turn > 0 and not (enables_city or enables_settlement or enables_dev or road_ok):
+            chain_penalty = self._params.bank_trade_chain_penalty
+            reasons.append("chain penalty")
+        if bonus <= 0:
+            self._score_notes[id(action)] = "rejected: no progress" + ("; chain penalty" if chain_penalty else "")
+            return self._params.bank_trade_no_progress_penalty + favorable_rate + scarcity + chain_penalty
+        self._score_notes[id(action)] = "; ".join(reasons)
+        return self._params.bank_trade_base_score + favorable_rate + scarcity + bonus + chain_penalty
+
+    def _best_road_progress_gain(self, state: GameState, player_id: int) -> float:
+        anchors = {node_id for node_id, owner in state.placed.settlements.items() if owner == player_id}
+        anchors.update(node_id for node_id, owner in state.placed.cities.items() if owner == player_id)
+        for edge_id, owner in state.placed.roads.items():
+            if owner != player_id:
+                continue
+            a, b = state.board.edge_to_adjacent_nodes[edge_id]
+            anchors.add(a)
+            anchors.add(b)
+        candidate_edges = [edge.id for edge in state.board.edges if edge.id not in state.placed.roads and (edge.node_a in anchors or edge.node_b in anchors)]
+        before = self._roads_to_targets(state, player_id)
+        best = 0.0
+        for edge_id in candidate_edges[:8]:
+            after = self._roads_to_targets(state, player_id, planned_edges={edge_id})
+            best = max(best, self._score_road_progress(state, before, after))
+        return best
+
+    def _prepare_turn_context(self, state: GameState | None) -> None:
+        if state is None or state.turn is None:
+            self._bank_trades_this_turn = 0
+            self._last_turn_player_id = None
+            return
+        if state.turn.step != TurnStep.ACTIONS:
+            self._bank_trades_this_turn = 0
+        if self._last_turn_player_id != state.turn.current_player:
+            self._bank_trades_this_turn = 0
+            self._last_turn_player_id = state.turn.current_player
 
     def _score_move_robber(self, action: MoveRobber, state: GameState | None) -> float:
         if state is None:

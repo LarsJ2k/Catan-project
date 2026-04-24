@@ -206,3 +206,36 @@ def test_v1_different_weight_profiles_can_pick_different_actions() -> None:
     road_focus_choice = road_focus.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
     assert isinstance(conservative_choice, EndTurn)
     assert isinstance(road_focus_choice, BuildRoad)
+
+
+def test_v1_rejects_useless_bank_trade_in_favor_of_end_turn() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=120))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 4,
+        ResourceType.GRAIN: 0,
+        ResourceType.ORE: 0,
+    }
+    bot = HeuristicV1BaselineBotController(seed=1, enable_delay=False)
+    legal = [EndTurn(player_id=1), BankTrade(player_id=1, offer_resource=ResourceType.WOOL, request_resource=ResourceType.BRICK, trade_rate=4)]
+
+    chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    assert isinstance(chosen, EndTurn)
+
+
+def test_v1_accepts_bank_trade_that_enables_city() -> None:
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2), board=build_classic_19_tile_board(), seed=121))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {
+        ResourceType.BRICK: 4,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 2,
+    }
+    bot = HeuristicV1BaselineBotController(seed=1, enable_delay=False)
+    trade = BankTrade(player_id=1, offer_resource=ResourceType.BRICK, request_resource=ResourceType.ORE, trade_rate=4)
+    chosen = bot.choose_action(observation=DebugObservation(state=state), legal_actions=[EndTurn(player_id=1), trade])
+    assert chosen == trade

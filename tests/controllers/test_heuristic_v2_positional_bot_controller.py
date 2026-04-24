@@ -214,3 +214,37 @@ def test_v2_profiling_does_not_change_selected_action() -> None:
     assert unprofiled.choose_action(DebugObservation(state=state), legal) == profiled.choose_action(
         DebugObservation(state=state), legal
     )
+
+
+def test_v2_rejects_bank_trade_when_position_delta_below_threshold() -> None:
+    state = _state(152)
+    state.players[1].resources[ResourceType.WOOL] = 4
+    params = HeuristicScoringParams(
+        bank_trade_progress_threshold=1_000.0,
+        bank_trade_no_progress_penalty=-1_000.0,
+        end_turn_base_score=0.0,
+    )
+    bot = HeuristicV2PositionalBotController(seed=9, enable_delay=False, heuristic_params=params)
+    trade = BankTrade(player_id=1, offer_resource=ResourceType.WOOL, request_resource=ResourceType.BRICK, trade_rate=4)
+    chosen = bot.choose_action(DebugObservation(state=state), [trade, EndTurn(player_id=1)])
+    assert isinstance(chosen, EndTurn)
+
+
+def test_v2_accepts_bank_trade_when_delta_gate_is_loose_and_trade_enables_city() -> None:
+    state = _state(153)
+    state.players[1].resources = {
+        ResourceType.BRICK: 4,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 2,
+    }
+    params = HeuristicScoringParams(
+        bank_trade_progress_threshold=-100.0,
+        bank_trade_no_progress_penalty=-10.0,
+        end_turn_base_score=0.0,
+    )
+    bot = HeuristicV2PositionalBotController(seed=9, enable_delay=False, heuristic_params=params)
+    trade = BankTrade(player_id=1, offer_resource=ResourceType.BRICK, request_resource=ResourceType.ORE, trade_rate=4)
+    chosen = bot.choose_action(DebugObservation(state=state), [trade, EndTurn(player_id=1)])
+    assert chosen == trade
