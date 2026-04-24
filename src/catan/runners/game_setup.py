@@ -10,6 +10,7 @@ class AppScreen(str, Enum):
     GAME_SETUP = "game_setup"
     TOURNAMENT_SETUP = "tournament_setup"
     BOT_LAB = "bot_lab"
+    TRAINING = "training"
 
 
 class ControllerType(str, Enum):
@@ -370,4 +371,63 @@ class TournamentSetupState:
             base_seed=base_seed,
             fixed_lineup=fixed_lineup,
             output_options=TournamentOutputOptions(write_json=self.export_json, write_csv=self.export_csv),
+        )
+
+
+@dataclass(frozen=True)
+class TrainingSetupState:
+    selected_parent_bots: tuple[str, ...] = ()
+    population_per_parent_text: str = "8"
+    mutation_modifier_text: str = "0.7"
+    mutation_seed_text: str = "123"
+    candidate_prefix: str = "mut"
+    games_per_bot_text: str = "40"
+    tournament_seed_text: str = "1"
+
+    def toggle_parent_bot(self, bot_id: str) -> TrainingSetupState:
+        if bot_id in self.selected_parent_bots:
+            return TrainingSetupState(
+                selected_parent_bots=tuple(value for value in self.selected_parent_bots if value != bot_id),
+                population_per_parent_text=self.population_per_parent_text,
+                mutation_modifier_text=self.mutation_modifier_text,
+                mutation_seed_text=self.mutation_seed_text,
+                candidate_prefix=self.candidate_prefix,
+                games_per_bot_text=self.games_per_bot_text,
+                tournament_seed_text=self.tournament_seed_text,
+            )
+        return TrainingSetupState(
+            selected_parent_bots=self.selected_parent_bots + (bot_id,),
+            population_per_parent_text=self.population_per_parent_text,
+            mutation_modifier_text=self.mutation_modifier_text,
+            mutation_seed_text=self.mutation_seed_text,
+            candidate_prefix=self.candidate_prefix,
+            games_per_bot_text=self.games_per_bot_text,
+            tournament_seed_text=self.tournament_seed_text,
+        )
+
+    def to_training_config(self):
+        from catan.runners.training import TrainingConfig
+
+        if not self.selected_parent_bots:
+            return None
+        try:
+            population = int(self.population_per_parent_text)
+            modifier = float(self.mutation_modifier_text)
+            mutation_seed = int(self.mutation_seed_text)
+            games_per_bot = int(self.games_per_bot_text)
+            tournament_seed = int(self.tournament_seed_text)
+        except ValueError:
+            return None
+        if population <= 0 or games_per_bot <= 0:
+            return None
+        if modifier <= 0 or modifier > 1:
+            return None
+        return TrainingConfig(
+            parent_bot_ids=self.selected_parent_bots,
+            population_per_parent=population,
+            mutation_modifier=modifier,
+            mutation_seed=mutation_seed,
+            candidate_prefix=self.candidate_prefix.strip() or "mut",
+            games_per_bot=games_per_bot,
+            tournament_seed=tournament_seed,
         )

@@ -37,6 +37,7 @@ from catan.runners.game_setup import (
     GameLaunchConfig,
     GameSetupState,
     TournamentSetupState,
+    TrainingSetupState,
     available_controller_types,
     controller_label,
 )
@@ -47,6 +48,7 @@ from catan.controllers.bot_catalog import (
     delete_custom_bot_definition,
     list_bot_definitions,
 )
+from catan.runners.training import TrainingRunner, mutable_numeric_parameter_keys, promote_training_candidates, rank_candidates
 from catan.controllers.heuristic_params import merge_with_family_defaults
 
 from .input_mapper import HoverTarget, PygameInputMapper
@@ -78,6 +80,13 @@ class PygameApp:
         small_font = self.pg.font.SysFont("arial", 22)
         flow_state = GameSetupState()
         tournament_state = TournamentSetupState()
+        training_state = TrainingSetupState()
+        training_result = None
+        training_error: str | None = None
+        training_ranked_rows = []
+        selected_training_candidate_ids: set[str] = set()
+        training_promotion_names: dict[str, str] = {}
+        selected_training_field: str | None = None
         tournament_summary_lines: list[str] = []
         selected_seed_input = False
         list_scroll_offset = 0
@@ -98,7 +107,8 @@ class PygameApp:
             new_game_rect = self.pg.Rect(width // 2 - 120, height // 2 - 20, 240, 48)
             tournament_rect = self.pg.Rect(width // 2 - 120, height // 2 + 44, 240, 48)
             bot_lab_rect = self.pg.Rect(width // 2 - 120, height // 2 + 108, 240, 48)
-            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 172, 240, 48)
+            training_rect = self.pg.Rect(width // 2 - 120, height // 2 + 172, 240, 48)
+            quit_rect = self.pg.Rect(width // 2 - 120, height // 2 + 236, 240, 48)
             back_rect = self.pg.Rect(40, height - 70, 160, 42)
             start_rect = self.pg.Rect(width - 220, height - 70, 180, 42)
             seed_slider_rect = self.pg.Rect(60, height - 230, 350, 36)
@@ -149,6 +159,9 @@ class PygameApp:
                             flow_state = GameSetupState(screen=AppScreen.BOT_LAB)
                             bots = list_bot_definitions()
                             selected_lab_bot_key = _bot_lab_key(bots[0].is_builtin, bots[0].bot_id) if bots else None
+                        elif training_rect.collidepoint(event.pos):
+                            flow_state = GameSetupState(screen=AppScreen.TRAINING)
+                            training_error = None
                         elif quit_rect.collidepoint(event.pos):
                             self.pg.quit()
                             return None
@@ -327,6 +340,163 @@ class PygameApp:
                             index = event.key - self.pg.K_a
                             if 0 <= index < len(bot_specs):
                                 tournament_state = tournament_state.toggle_bot(bot_specs[index].bot_id)
+                elif flow_state.screen == AppScreen.TRAINING:
+                    bot_specs = [bot for bot in list_bot_definitions() if mutable_numeric_parameter_keys(bot)]
+                    parent_list_rect = self.pg.Rect(40, 100, width // 3, height - 220)
+                    run_training_rect = self.pg.Rect(width - 280, height - 130, 240, 42)
+                    promote_rect = self.pg.Rect(width - 280, height - 80, 240, 42)
+                    back_training_rect = self.pg.Rect(40, height - 70, 160, 42)
+                    field_rects = {
+                        "population": self.pg.Rect(width // 3 + 70, 120, 220, 34),
+                        "modifier": self.pg.Rect(width // 3 + 70, 166, 220, 34),
+                        "mutation_seed": self.pg.Rect(width // 3 + 70, 212, 220, 34),
+                        "games": self.pg.Rect(width // 3 + 70, 258, 220, 34),
+                        "tournament_seed": self.pg.Rect(width // 3 + 70, 304, 220, 34),
+                        "prefix": self.pg.Rect(width // 3 + 70, 350, 220, 34),
+                    }
+                    if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                        if back_training_rect.collidepoint(event.pos):
+                            flow_state = flow_state.back_to_menu()
+                            continue
+                        selected_training_field = None
+                        for key, rect in field_rects.items():
+                            if rect.collidepoint(event.pos):
+                                selected_training_field = key
+                        if parent_list_rect.collidepoint(event.pos):
+                            row_idx = (event.pos[1] - parent_list_rect.y) // 34
+                            if 0 <= row_idx < len(bot_specs):
+                                training_state = training_state.toggle_parent_bot(bot_specs[row_idx].bot_id)
+                            continue
+                        if run_training_rect.collidepoint(event.pos):
+                            config = training_state.to_training_config()
+                            if config is None:
+                                training_error = "Invalid training settings."
+                            else:
+                                try:
+                                    training_result = TrainingRunner().run(config)
+                                    training_ranked_rows = rank_candidates(training_result)
+                                    selected_training_candidate_ids = set()
+                                    training_promotion_names = {}
+                                    training_error = None
+                                except ValueError as exc:
+                                    training_error = str(exc)
+                            continue
+                        if training_result is not None:
+                            results_top = 412
+                            for idx, row in enumerate(training_ranked_rows[:10]):
+                                row_rect = self.pg.Rect(width // 3 + 70, results_top + idx * 30, width - (width // 3 + 120), 26)
+                                candidate = row[0]
+                                if row_rect.collidepoint(event.pos):
+                                    if candidate.temporary_id in selected_training_candidate_ids:
+                                        selected_training_candidate_ids.remove(candidate.temporary_id)
+                                    else:
+                                        selected_training_candidate_ids.add(candidate.temporary_id)
+                            if promote_rect.collidepoint(event.pos):
+                                try:
+                                    promote_training_candidates(
+                                        candidates=training_result.candidate_definitions,
+                                        promoted_names_by_id={
+                                            cid: training_promotion_names.get(cid, "")
+                                            for cid in selected_training_candidate_ids
+                                        },
+                                    )
+                                    training_error = f"Promoted {len(selected_training_candidate_ids)} bot(s)."
+                                    selected_training_candidate_ids = set()
+                                except ValueError as exc:
+                                    training_error = str(exc)
+                                continue
+                    if event.type == self.pg.KEYDOWN and selected_training_field is not None:
+                        if selected_training_field == "population":
+                            text = training_state.population_per_parent_text
+                            if event.key == self.pg.K_BACKSPACE:
+                                text = text[:-1]
+                            elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not text)):
+                                text += event.unicode
+                            training_state = TrainingSetupState(
+                                selected_parent_bots=training_state.selected_parent_bots,
+                                population_per_parent_text=text,
+                                mutation_modifier_text=training_state.mutation_modifier_text,
+                                mutation_seed_text=training_state.mutation_seed_text,
+                                candidate_prefix=training_state.candidate_prefix,
+                                games_per_bot_text=training_state.games_per_bot_text,
+                                tournament_seed_text=training_state.tournament_seed_text,
+                            )
+                        elif selected_training_field == "modifier":
+                            text = training_state.mutation_modifier_text
+                            if event.key == self.pg.K_BACKSPACE:
+                                text = text[:-1]
+                            elif event.unicode and (event.unicode.isdigit() or event.unicode in {".", "-"}):
+                                text += event.unicode
+                            training_state = TrainingSetupState(
+                                selected_parent_bots=training_state.selected_parent_bots,
+                                population_per_parent_text=training_state.population_per_parent_text,
+                                mutation_modifier_text=text,
+                                mutation_seed_text=training_state.mutation_seed_text,
+                                candidate_prefix=training_state.candidate_prefix,
+                                games_per_bot_text=training_state.games_per_bot_text,
+                                tournament_seed_text=training_state.tournament_seed_text,
+                            )
+                        elif selected_training_field == "mutation_seed":
+                            text = training_state.mutation_seed_text
+                            if event.key == self.pg.K_BACKSPACE:
+                                text = text[:-1]
+                            elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not text)):
+                                text += event.unicode
+                            training_state = TrainingSetupState(
+                                selected_parent_bots=training_state.selected_parent_bots,
+                                population_per_parent_text=training_state.population_per_parent_text,
+                                mutation_modifier_text=training_state.mutation_modifier_text,
+                                mutation_seed_text=text,
+                                candidate_prefix=training_state.candidate_prefix,
+                                games_per_bot_text=training_state.games_per_bot_text,
+                                tournament_seed_text=training_state.tournament_seed_text,
+                            )
+                        elif selected_training_field == "games":
+                            text = training_state.games_per_bot_text
+                            if event.key == self.pg.K_BACKSPACE:
+                                text = text[:-1]
+                            elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not text)):
+                                text += event.unicode
+                            training_state = TrainingSetupState(
+                                selected_parent_bots=training_state.selected_parent_bots,
+                                population_per_parent_text=training_state.population_per_parent_text,
+                                mutation_modifier_text=training_state.mutation_modifier_text,
+                                mutation_seed_text=training_state.mutation_seed_text,
+                                candidate_prefix=training_state.candidate_prefix,
+                                games_per_bot_text=text,
+                                tournament_seed_text=training_state.tournament_seed_text,
+                            )
+                        elif selected_training_field == "tournament_seed":
+                            text = training_state.tournament_seed_text
+                            if event.key == self.pg.K_BACKSPACE:
+                                text = text[:-1]
+                            elif event.unicode and (event.unicode.isdigit() or (event.unicode == "-" and not text)):
+                                text += event.unicode
+                            training_state = TrainingSetupState(
+                                selected_parent_bots=training_state.selected_parent_bots,
+                                population_per_parent_text=training_state.population_per_parent_text,
+                                mutation_modifier_text=training_state.mutation_modifier_text,
+                                mutation_seed_text=training_state.mutation_seed_text,
+                                candidate_prefix=training_state.candidate_prefix,
+                                games_per_bot_text=training_state.games_per_bot_text,
+                                tournament_seed_text=text,
+                            )
+                        elif selected_training_field == "prefix":
+                            text = training_state.candidate_prefix
+                            if event.key == self.pg.K_BACKSPACE:
+                                text = text[:-1]
+                            elif event.unicode and event.unicode.isprintable():
+                                text += event.unicode
+                            training_state = TrainingSetupState(
+                                selected_parent_bots=training_state.selected_parent_bots,
+                                population_per_parent_text=training_state.population_per_parent_text,
+                                mutation_modifier_text=training_state.mutation_modifier_text,
+                                mutation_seed_text=training_state.mutation_seed_text,
+                                candidate_prefix=text,
+                                games_per_bot_text=training_state.games_per_bot_text,
+                                tournament_seed_text=training_state.tournament_seed_text,
+                            )
+
                 elif flow_state.screen == AppScreen.BOT_LAB:
                     bot_definitions = list_bot_definitions()
                     list_rect = self.pg.Rect(40, 90, width // 3, height - 180)
@@ -484,6 +654,8 @@ class PygameApp:
                 title = "Game Setup"
             elif flow_state.screen == AppScreen.TOURNAMENT_SETUP:
                 title = "Tournament / Simulation"
+            elif flow_state.screen == AppScreen.TRAINING:
+                title = "Training"
             else:
                 title = "Bot Lab v1"
             screen.blit(font.render(title, True, (240, 240, 240)), (title_rect.x, title_rect.y))
@@ -491,10 +663,12 @@ class PygameApp:
                 self.pg.draw.rect(screen, (70, 120, 70), new_game_rect)
                 self.pg.draw.rect(screen, (70, 90, 130), tournament_rect)
                 self.pg.draw.rect(screen, (100, 86, 150), bot_lab_rect)
+                self.pg.draw.rect(screen, (70, 110, 140), training_rect)
                 self.pg.draw.rect(screen, (120, 70, 70), quit_rect)
                 screen.blit(font.render("New Game", True, (255, 255, 255)), (new_game_rect.x + 45, new_game_rect.y + 8))
                 screen.blit(small_font.render("Tournament / Simulation", True, (255, 255, 255)), (tournament_rect.x + 15, tournament_rect.y + 12))
                 screen.blit(small_font.render("Bot Lab v1", True, (255, 255, 255)), (bot_lab_rect.x + 70, bot_lab_rect.y + 12))
+                screen.blit(font.render("Training", True, (255, 255, 255)), (training_rect.x + 58, training_rect.y + 8))
                 screen.blit(font.render("Quit", True, (255, 255, 255)), (quit_rect.x + 85, quit_rect.y + 8))
             elif flow_state.screen == AppScreen.GAME_SETUP:
                 screen.blit(small_font.render("Configured Players", True, (220, 220, 235)), (left_slots_x, 85))
@@ -565,7 +739,52 @@ class PygameApp:
                     msg = "Add at least 2 players and use a valid fixed seed."
                     screen.blit(small_font.render(msg, True, (220, 130, 130)), (60, height - 125))
             else:
-                if flow_state.screen == AppScreen.BOT_LAB:
+                if flow_state.screen == AppScreen.TRAINING:
+                    bot_specs = [bot for bot in list_bot_definitions() if mutable_numeric_parameter_keys(bot)]
+                    parent_list_rect = self.pg.Rect(40, 100, width // 3, height - 220)
+                    self.pg.draw.rect(screen, (35, 35, 52), parent_list_rect, border_radius=8)
+                    screen.blit(small_font.render("Parent Bots (multi-select)", True, (220, 220, 235)), (40, 72))
+                    for idx, definition in enumerate(bot_specs):
+                        row_rect = self.pg.Rect(parent_list_rect.x + 10, parent_list_rect.y + 8 + idx * 34, parent_list_rect.width - 20, 28)
+                        selected = definition.bot_id in training_state.selected_parent_bots
+                        self.pg.draw.rect(screen, (82, 110, 98) if selected else (58, 58, 86), row_rect, border_radius=6)
+                        screen.blit(small_font.render(definition.display_name, True, (245, 245, 245)), (row_rect.x + 8, row_rect.y + 5))
+                    labels = [
+                        ("Population / parent", training_state.population_per_parent_text),
+                        ("Mutation modifier", training_state.mutation_modifier_text),
+                        ("Mutation seed", training_state.mutation_seed_text),
+                        ("Games / bot", training_state.games_per_bot_text),
+                        ("Tournament seed", training_state.tournament_seed_text),
+                        ("Candidate prefix", training_state.candidate_prefix),
+                    ]
+                    for idx, (label, value) in enumerate(labels):
+                        y = 120 + idx * 46
+                        rect = self.pg.Rect(width // 3 + 70, y, 220, 34)
+                        self.pg.draw.rect(screen, (48, 62, 86), rect, border_radius=6)
+                        screen.blit(small_font.render(f"{label}: {value}", True, (235, 235, 245)), (rect.x + 8, rect.y + 7))
+                    run_training_rect = self.pg.Rect(width - 280, height - 130, 240, 42)
+                    promote_rect = self.pg.Rect(width - 280, height - 80, 240, 42)
+                    back_training_rect = self.pg.Rect(40, height - 70, 160, 42)
+                    self.pg.draw.rect(screen, (70, 120, 70), run_training_rect, border_radius=8)
+                    self.pg.draw.rect(screen, (98, 98, 130), promote_rect, border_radius=8)
+                    self.pg.draw.rect(screen, (90, 90, 90), back_training_rect, border_radius=8)
+                    screen.blit(small_font.render("Generate + Run", True, (255, 255, 255)), (run_training_rect.x + 52, run_training_rect.y + 10))
+                    screen.blit(small_font.render("Promote Selected", True, (255, 255, 255)), (promote_rect.x + 40, promote_rect.y + 10))
+                    screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_training_rect.x + 55, back_training_rect.y + 10))
+                    if training_error is not None:
+                        screen.blit(small_font.render(training_error, True, (230, 150, 150)), (width // 3 + 70, height - 84))
+                    screen.blit(small_font.render("Results", True, (220, 220, 235)), (width // 3 + 70, 384))
+                    if training_result is not None:
+                        for idx, row in enumerate(training_ranked_rows[:10]):
+                            candidate, win_rate, avg_rank, avg_vp, games = row
+                            row_rect = self.pg.Rect(width // 3 + 70, 412 + idx * 30, width - (width // 3 + 120), 26)
+                            selected = candidate.temporary_id in selected_training_candidate_ids
+                            self.pg.draw.rect(screen, (92, 120, 90) if selected else (52, 52, 78), row_rect, border_radius=4)
+                            text = f"{'[x]' if selected else '[ ]'} {candidate.display_name} | parent={candidate.parent_display_name} | win={win_rate:.3f} | rank={avg_rank:.2f} | vp={avg_vp:.2f} | g={games}"
+                            screen.blit(small_font.render(text, True, (240, 240, 240)), (row_rect.x + 6, row_rect.y + 4))
+                            if selected and candidate.temporary_id not in training_promotion_names:
+                                training_promotion_names[candidate.temporary_id] = f"{candidate.display_name}_promoted"
+                elif flow_state.screen == AppScreen.BOT_LAB:
                     bot_definitions = list_bot_definitions()
                     self.pg.draw.rect(screen, (35, 35, 52), (40, 90, width // 3, height - 180), border_radius=8)
                     y = 100
