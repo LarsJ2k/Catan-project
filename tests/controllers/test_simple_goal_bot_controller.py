@@ -10,6 +10,7 @@ from catan.core.models.action import (
     DiscardResources,
     EndTurn,
     MoveRobber,
+    PlayRoadBuildingCard,
     ProposePlayerTrade,
     RespondToTradeInterested,
     RespondToTradePass,
@@ -99,7 +100,7 @@ def test_trade_proposal_only_when_directly_enables_goal() -> None:
     state.players[1].resources = {
         ResourceType.BRICK: 0,
         ResourceType.LUMBER: 0,
-        ResourceType.WOOL: 0,
+        ResourceType.WOOL: 1,
         ResourceType.GRAIN: 2,
         ResourceType.ORE: 2,
     }
@@ -119,6 +120,66 @@ def test_trade_proposal_only_when_directly_enables_goal() -> None:
 
     assert isinstance(direct_trade, ProposePlayerTrade)
     assert isinstance(useless, EndTurn)
+
+
+def test_trade_prefers_safe_2_for_1_before_1_for_1() -> None:
+    state = _main_turn_state(42)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 3,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 2,
+    }
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = SimpleGoalBotController(seed=40, enable_delay=False)
+
+    chosen = bot.choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
+
+    assert chosen == ProposePlayerTrade(
+        player_id=1,
+        offered_resources=((ResourceType.WOOL, 2),),
+        requested_resources=((ResourceType.ORE, 1),),
+    )
+
+
+def test_trade_does_not_offer_goal_critical_resources() -> None:
+    state = _main_turn_state(43)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 2,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 2,
+    }
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = SimpleGoalBotController(seed=41, enable_delay=False)
+
+    chosen = bot.choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
+
+    assert isinstance(chosen, ProposePlayerTrade)
+    assert chosen.offered_resources == ((ResourceType.WOOL, 2),)
+
+
+def test_trade_falls_back_to_1_for_1_when_no_safe_2_for_1() -> None:
+    state = _main_turn_state(44)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 2,
+    }
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = SimpleGoalBotController(seed=42, enable_delay=False)
+
+    chosen = bot.choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
+
+    assert chosen == ProposePlayerTrade(
+        player_id=1,
+        offered_resources=((ResourceType.WOOL, 1),),
+        requested_resources=((ResourceType.ORE, 1),),
+    )
 
 
 def test_trade_acceptance_only_for_city_or_settlement_enable() -> None:
@@ -225,3 +286,67 @@ def test_no_looping_useless_trades_in_no_progress_scenario() -> None:
     for _ in range(5):
         chosen = bot.choose_action(DebugObservation(state=state), legal)
         assert isinstance(chosen, EndTurn)
+
+
+def test_road_target_discovery_excludes_currently_buildable_nodes() -> None:
+    state = _main_turn_state(82)
+    state.placed.settlements[0] = 1
+    bot = SimpleGoalBotController(seed=9, enable_delay=False)
+    legal = [BuildSettlement(player_id=1, node_id=5), BuildRoad(player_id=1, edge_id=0), EndTurn(player_id=1)]
+
+    targets = bot._valid_future_settlement_targets(state, legal)
+
+    assert all(node_id != 5 for node_id, _ in targets)
+
+
+def test_road_path_selection_reduces_distance_to_selected_target() -> None:
+    state = _main_turn_state(83)
+    state.placed.settlements[0] = 1
+    bot = SimpleGoalBotController(seed=10, enable_delay=False)
+    legal = [BuildRoad(player_id=1, edge_id=edge.id) for edge in state.board.edges]
+    target = bot._select_future_settlement_target(state, legal)
+    assert target is not None
+    target_node, _ = target
+    before = bot._distance_to_target_with_planned_roads(state, target_node, set())
+
+    choice = bot.choose_action(DebugObservation(state=state), legal + [EndTurn(player_id=1)])
+
+    assert isinstance(choice, BuildRoad)
+    after = bot._distance_to_target_with_planned_roads(state, target_node, {choice.edge_id})
+    assert before is not None and after is not None
+    assert after < before
+
+
+def test_road_target_tiebreak_is_deterministic_from_seed() -> None:
+    state = _main_turn_state(84)
+    state.placed.settlements[0] = 1
+    legal = [BuildRoad(player_id=1, edge_id=edge.id) for edge in state.board.edges] + [EndTurn(player_id=1)]
+    bot_a = SimpleGoalBotController(seed=123, enable_delay=False)
+    bot_b = SimpleGoalBotController(seed=123, enable_delay=False)
+
+    choice_a = bot_a.choose_action(DebugObservation(state=state), legal)
+    choice_b = bot_b.choose_action(DebugObservation(state=state), legal)
+
+    assert choice_a == choice_b
+
+
+def test_road_building_card_only_played_when_valid_target_exists() -> None:
+    state = _main_turn_state(85)
+    state.placed.settlements[0] = 1
+    bot = SimpleGoalBotController(seed=11, enable_delay=False)
+    legal = [PlayRoadBuildingCard(player_id=1), BuildRoad(player_id=1, edge_id=0), EndTurn(player_id=1)]
+
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, PlayRoadBuildingCard)
+
+    blocked = _main_turn_state(86)
+    blocked.placed.settlements[0] = 1
+    for node_id in blocked.board.nodes:
+        if node_id in blocked.placed.settlements:
+            continue
+        blocked.placed.settlements[node_id] = 2
+    chosen_blocked = bot.choose_action(
+        DebugObservation(state=blocked),
+        [PlayRoadBuildingCard(player_id=1), BuildRoad(player_id=1, edge_id=0), EndTurn(player_id=1)],
+    )
+    assert isinstance(chosen_blocked, EndTurn)
