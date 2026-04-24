@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from time import perf_counter
 from typing import Any, Sequence
 
@@ -17,6 +16,7 @@ from catan.core.models.action import (
     StealResource,
 )
 from catan.core.models.state import GameState
+from catan.core.models.state import PlacedPieces, PlayerState, SetupState, TurnState
 from catan.core.observer import DebugObservation, Observation
 
 
@@ -166,7 +166,7 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
 
         try:
             copy_start = perf_counter()
-            simulated_state = copy.deepcopy(state)
+            simulated_state = self._clone_state_for_simulation(state)
             profile.state_copy_time_s = perf_counter() - copy_start
 
             apply_start = perf_counter()
@@ -187,6 +187,66 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         except Exception:
             profile.candidate_simulation_time_s = perf_counter() - candidate_start
             return -1_000_000.0, "simulation failed", profile
+
+    def _clone_state_for_simulation(self, state: GameState) -> GameState:
+        return GameState(
+            board=state.board,
+            players={
+                player_id: PlayerState(
+                    player_id=player.player_id,
+                    resources=dict(player.resources),
+                    roads_left=player.roads_left,
+                    settlements_left=player.settlements_left,
+                    cities_left=player.cities_left,
+                    victory_points=player.victory_points,
+                    setup_settlements_placed=player.setup_settlements_placed,
+                    dev_cards=dict(player.dev_cards),
+                    new_dev_cards=dict(player.new_dev_cards),
+                    knights_played=player.knights_played,
+                    longest_road_length=player.longest_road_length,
+                    dev_cards_bought=player.dev_cards_bought,
+                    dev_cards_played=player.dev_cards_played,
+                    bank_trades_count=player.bank_trades_count,
+                    player_trades_proposed=player.player_trades_proposed,
+                    player_trades_completed=player.player_trades_completed,
+                )
+                for player_id, player in state.players.items()
+            },
+            phase=state.phase,
+            setup=SetupState(
+                pending_settlement_player=state.setup.pending_settlement_player,
+                pending_road_player=state.setup.pending_road_player,
+                pending_road_origin_node=state.setup.pending_road_origin_node,
+                order=list(state.setup.order),
+                index=state.setup.index,
+            ),
+            turn=(
+                None
+                if state.turn is None
+                else TurnState(
+                    current_player=state.turn.current_player,
+                    step=state.turn.step,
+                    last_roll=state.turn.last_roll,
+                    priority_player=state.turn.priority_player,
+                    dev_card_played_this_turn=state.turn.dev_card_played_this_turn,
+                )
+            ),
+            placed=PlacedPieces(
+                roads=dict(state.placed.roads),
+                settlements=dict(state.placed.settlements),
+                cities=dict(state.placed.cities),
+            ),
+            winner=state.winner,
+            rng_state=state.rng_state,
+            robber_tile_id=state.robber_tile_id,
+            discard_requirements=dict(state.discard_requirements),
+            player_trade=state.player_trade,
+            dev_deck=state.dev_deck,
+            largest_army_holder=state.largest_army_holder,
+            longest_road_holder=state.longest_road_holder,
+            robber_source=state.robber_source,
+            dev_card_flow=state.dev_card_flow,
+        )
 
     def _record_profile(self, profile: V2DecisionProfile, decision_start: float) -> None:
         if not self._enable_v2_profiling:

@@ -3,11 +3,12 @@ from __future__ import annotations
 import copy
 
 from catan.controllers.heuristic_params import HeuristicScoringParams, default_family_parameters
+from catan.controllers.heuristic_v1_baseline_bot_controller import _TERRAIN_TO_RESOURCE
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
 from catan.controllers.heuristic_v2_profiling import GLOBAL_V2_PROFILING_STATS
 from catan.controllers.heuristic_v2_position_evaluator import HeuristicV2PositionEvaluator
 from catan.core.board_factory import build_classic_19_tile_board
-from catan.core.engine import create_initial_state
+from catan.core.engine import apply_action, create_initial_state
 from catan.core.models.action import BankTrade, BuildCity, BuildRoad, BuildSettlement, DiscardResources, EndTurn, ProposePlayerTrade
 from catan.core.models.enums import GamePhase, ResourceType, TurnStep
 from catan.core.models.state import InitialGameConfig, TurnState
@@ -50,6 +51,21 @@ def test_v2_candidate_evaluation_does_not_mutate_real_state() -> None:
 
     assert state == before
     assert state.rng_state == before.rng_state
+
+
+def test_v2_lightweight_clone_matches_deepcopy_for_apply_action() -> None:
+    state = _state(107)
+    state.phase = GamePhase.MAIN_TURN
+    bot = HeuristicV2PositionalBotController(seed=8, enable_delay=False)
+    action = EndTurn(player_id=1)
+
+    lightweight = bot._clone_state_for_simulation(state)
+    deep = copy.deepcopy(state)
+    lightweight_after = apply_action(lightweight, action)
+    deep_after = apply_action(deep, action)
+
+    assert lightweight_after == deep_after
+    assert state.placed.roads == {}
 
 
 def test_v2_is_deterministic_for_same_seed_state_and_params() -> None:
@@ -141,6 +157,32 @@ def test_position_evaluator_rewards_vp_and_production_and_penalties() -> None:
     for edge_id in range(10):
         overbuilt.placed.roads[edge_id] = 1
     assert evaluator.evaluate(overbuilt, 1, punitive_params).total_score < evaluator.evaluate(high_prod, 1, punitive_params).total_score
+
+
+def test_board_evaluation_cache_matches_uncached_node_calculations() -> None:
+    state = _state(108)
+    evaluator = HeuristicV2PositionEvaluator()
+    cache = evaluator._get_board_cache(state.board)
+
+    for node_id in state.board.nodes[:8]:
+        assert cache.node_data[node_id].pip_score == evaluator._node_quality(state, node_id)
+        resources = []
+        for tile_id in state.board.node_to_adjacent_tiles[node_id]:
+            tile = evaluator._tile_by_id(state, tile_id)
+            resource = _TERRAIN_TO_RESOURCE.get(tile.terrain)
+            if resource is not None:
+                resources.append(resource)
+        assert cache.node_data[node_id].resource_diversity == len(set(resources))
+
+
+def test_expansion_cache_path_matches_uncached_expansion_score() -> None:
+    state = _state(109)
+    state.placed.settlements[0] = 1
+    state.placed.roads[0] = 1
+    evaluator = HeuristicV2PositionEvaluator()
+    cached = evaluator._expansion_potential(state, 1, evaluator._get_board_cache(state.board))
+    uncached = evaluator._expansion_potential_uncached(state, 1)
+    assert cached == uncached
 
 
 def test_v2_profiling_can_be_enabled_or_disabled() -> None:
