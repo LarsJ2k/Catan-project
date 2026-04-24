@@ -14,6 +14,7 @@ from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
 from catan.core.models.enums import DevelopmentCardType
 from catan.core.models.state import GameState, InitialGameConfig
+from catan.controllers.heuristic_v2_profiling import GLOBAL_V2_PROFILING_STATS
 from catan.runners.game_setup import GameLaunchConfig, PlayerSlotConfig
 from catan.runners.headless_runner import HeadlessRunner
 from catan.runners.launcher import create_controllers
@@ -41,6 +42,7 @@ class TournamentConfig:
     base_seed: int = 1
     fixed_lineup: tuple[str, ...] | None = None
     output_options: TournamentOutputOptions = TournamentOutputOptions()
+    enable_v2_profiling: bool = False
 
 
 @dataclass(frozen=True)
@@ -239,27 +241,36 @@ class HeadlessTournamentRunner:
     ) -> TournamentResult:
         tournament_sequence = _next_tournament_sequence(config)
         tournament_id = _build_tournament_id(config, tournament_sequence)
+        if config.enable_v2_profiling:
+            GLOBAL_V2_PROFILING_STATS.reset()
         matches = generate_match_configs(config)
         if progress_callback is not None:
             progress_callback(0, len(matches))
         results: list[MatchResult] = []
         for idx, match in enumerate(matches, start=1):
-            results.append(self._play_match(match, match_index=idx, tournament_id=tournament_id))
+            results.append(self._play_match(match, match_index=idx, tournament_id=tournament_id, config=config))
             if progress_callback is not None:
                 progress_callback(idx, len(matches))
-        return TournamentResult(
+        result = TournamentResult(
             config=config,
             tournament_id=tournament_id,
             matches=tuple(results),
             aggregates=aggregate_results(tuple(results)),
         )
+        if config.enable_v2_profiling:
+            profile_path = Path(config.output_options.output_dir) / f"{result.tournament_id}_v2_profile.json"
+            GLOBAL_V2_PROFILING_STATS.write_json(profile_path)
+            print(GLOBAL_V2_PROFILING_STATS.formatted_summary())
+            print(f"V2 profiling JSON: {profile_path}")
+        return result
 
-    def _play_match(self, match: MatchConfig, match_index: int, tournament_id: str) -> MatchResult:
+    def _play_match(self, match: MatchConfig, match_index: int, tournament_id: str, config: TournamentConfig) -> MatchResult:
         board = build_classic_19_tile_board(seed=match.seed)
         state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3, 4), board=board, seed=match.seed))
         controllers = create_controllers(
             _to_launch_config(match.seat_order, match.seed),
             enable_bot_delay=False,
+            enable_v2_profiling=config.enable_v2_profiling,
         )
         final_state, step_count = self._game_runner.play_until_terminal_with_steps(state, controllers, max_steps=100_000)
         seat_vps = tuple(_total_victory_points(final_state, idx + 1) for idx in range(4))
