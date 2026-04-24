@@ -18,6 +18,7 @@ from catan.runners.tournament import (
     MatchResult,
     TournamentConfig,
     TournamentFormat,
+    _total_victory_points,
     TournamentResult,
     _build_seat_result,
     _ranks_from_vps,
@@ -224,7 +225,7 @@ class TrainingRunner:
                 delay_seconds=0.0,
             )
         final_state, step_count = self._game_runner.play_until_terminal_with_steps(state, controllers, max_steps=100_000)
-        seat_vps = tuple(sum(final_state.victory_points(pid + 1).values()) for pid in range(4))
+        seat_vps = tuple(_total_victory_points(final_state, pid + 1) for pid in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
         winner_bot_id: str | None = None
