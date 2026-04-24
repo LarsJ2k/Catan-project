@@ -106,6 +106,9 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
             settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
             if settlement_trade is not None:
                 return settlement_trade
+            city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]
+            if city_actions:
+                return self._best_city_action(state, city_actions)
             return next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions)))
 
         city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]

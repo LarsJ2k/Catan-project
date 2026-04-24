@@ -66,6 +66,21 @@ def test_settlement_priority_when_city_not_possible() -> None:
     assert isinstance(chosen, BuildSettlement)
 
 
+def test_city_is_chosen_when_settlement_location_exists_but_only_city_is_buildable() -> None:
+    state = _main_turn_state(22)
+    bot = SimpleGoalBotController(seed=22, enable_delay=False)
+
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [
+            BuildCity(player_id=1, node_id=1),
+            EndTurn(player_id=1),
+        ],
+    )
+
+    assert isinstance(chosen, BuildCity)
+
+
 def test_road_behavior_only_when_no_settlement_available() -> None:
     state = _main_turn_state(31)
     state.placed.settlements[0] = 1
