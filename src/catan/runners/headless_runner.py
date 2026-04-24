@@ -30,6 +30,7 @@ from catan.core.models.state import GameState
 
 @dataclass(frozen=True)
 class StuckGameConfig:
+    min_full_turns_before_stall_checks: int = 30
     no_vp_change_step_limit: int = 2_000
     no_progress_step_limit: int = 1_200
     low_impact_cycle_window: int = 24
@@ -123,18 +124,21 @@ class HeadlessRunner:
 
             current = next_state
 
-            if steps_since_vp_change >= stuck_config.no_vp_change_step_limit:
-                termination_reason = "stalled"
-                stalled_reason = "no_vp_change_limit"
-                break
-            if steps_since_progress >= stuck_config.no_progress_step_limit:
-                termination_reason = "stalled"
-                stalled_reason = "no_progress_limit"
-                break
-            if _has_repeated_low_impact_cycle(low_impact_signatures):
-                termination_reason = "stalled"
-                stalled_reason = "repeated_low_impact_cycle"
-                break
+            player_count = len(current.players)
+            full_turn_count_so_far = completed_turn_actions // player_count if player_count else 0
+            if full_turn_count_so_far >= stuck_config.min_full_turns_before_stall_checks:
+                if steps_since_vp_change >= stuck_config.no_vp_change_step_limit:
+                    termination_reason = "stalled"
+                    stalled_reason = "no_vp_change_limit"
+                    break
+                if steps_since_progress >= stuck_config.no_progress_step_limit:
+                    termination_reason = "stalled"
+                    stalled_reason = "no_progress_limit"
+                    break
+                if _has_repeated_low_impact_cycle(low_impact_signatures):
+                    termination_reason = "stalled"
+                    stalled_reason = "repeated_low_impact_cycle"
+                    break
 
         if is_terminal(current):
             termination_reason = "win"
