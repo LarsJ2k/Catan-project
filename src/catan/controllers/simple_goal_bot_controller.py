@@ -517,7 +517,13 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
         if self._can_afford(hand, _CITY_COST) or self._can_afford(hand, _SETTLEMENT_COST):
             return False
         if self._missing_resources(hand, _CITY_COST) == 1 or self._missing_resources(hand, _SETTLEMENT_COST) == 1:
-            return False
+            if not self._can_afford(hand, _DEV_COST):
+                return False
+            after_dev_buy = dict(hand)
+            for resource, amount in _DEV_COST.items():
+                after_dev_buy[resource] = after_dev_buy.get(resource, 0) - amount
+            if self._missing_resources(after_dev_buy, _CITY_COST) != 1 and self._missing_resources(after_dev_buy, _SETTLEMENT_COST) != 1:
+                return False
         return self._can_afford(hand, _DEV_COST) or self._is_stalled(state)
 
     def _choose_trade_response(self, state: GameState, legal_actions: Sequence[Action]) -> Action:

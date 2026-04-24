@@ -8,6 +8,7 @@ from catan.core.models.action import (
     BuildCity,
     BuildRoad,
     BuildSettlement,
+    BuyDevelopmentCard,
     DiscardResources,
     EndTurn,
     MoveRobber,
@@ -314,6 +315,44 @@ def test_trade_acceptance_only_for_city_or_settlement_enable() -> None:
 
     assert isinstance(accept, RespondToTradeInterested)
     assert isinstance(reject, RespondToTradePass)
+
+
+def test_dev_buy_allowed_when_still_one_away_after_purchase() -> None:
+    state = _main_turn_state(52)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 2,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 1,
+    }
+    bot = SimpleGoalBotController(seed=12, enable_delay=False)
+
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [BuyDevelopmentCard(player_id=1), EndTurn(player_id=1)],
+    )
+
+    assert isinstance(chosen, BuyDevelopmentCard)
+
+
+def test_dev_buy_blocked_when_purchase_breaks_one_away_state() -> None:
+    state = _main_turn_state(53)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 1,
+    }
+    bot = SimpleGoalBotController(seed=13, enable_delay=False)
+
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [BuyDevelopmentCard(player_id=1), EndTurn(player_id=1)],
+    )
+
+    assert isinstance(chosen, EndTurn)
 
 
 def test_discard_prefers_highest_count_resource() -> None:
