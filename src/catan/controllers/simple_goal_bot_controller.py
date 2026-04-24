@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import time
+from collections import deque
 from typing import Any, Sequence
 
 from catan.controllers.heuristic_v1_baseline_bot_controller import (
@@ -253,24 +254,74 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
         opponents = [p for p in state.players.values() if p.player_id != player_id]
         if not any(op.resources.get(missing_resource, 0) > 0 for op in opponents):
             return None
-        protected = {resource for resource, amount in goal_cost.items() if player.resources.get(resource, 0) < amount}
-        candidates: list[tuple[int, ResourceType]] = []
+        candidates_2_for_1: list[ResourceType] = []
+        candidates_1_for_1: list[ResourceType] = []
         for resource in ResourceType:
-            if resource == missing_resource or resource in protected:
+            if resource == missing_resource:
                 continue
-            count = player.resources.get(resource, 0)
-            if count >= 2:
-                candidates.append((2, resource))
-            if count >= 1:
-                candidates.append((1, resource))
-        if not candidates:
+            if self._is_safe_trade_offer(player.resources, goal_cost, resource, 2):
+                candidates_2_for_1.append(resource)
+            if self._is_safe_trade_offer(player.resources, goal_cost, resource, 1):
+                candidates_1_for_1.append(resource)
+        if candidates_2_for_1:
+            best_surplus = max(self._resource_surplus(player.resources, goal_cost, resource) for resource in candidates_2_for_1)
+            ties = [resource for resource in candidates_2_for_1 if self._resource_surplus(player.resources, goal_cost, resource) == best_surplus]
+            offered_amount = 2
+            offered_resource = self._pick_tie(ties)
+            goal_name = "City" if goal_cost == _CITY_COST else "Settlement"
+            self._last_decision = {
+                "type": "trade",
+                "trade_shape": "2:1",
+                "goal": goal_name,
+                "missing_resource": missing_resource.name,
+                "offered_resource": offered_resource.name,
+                "offered_amount": offered_amount,
+                "why_surplus": f"have {player.resources.get(offered_resource, 0)}, need {goal_cost.get(offered_resource, 0)} for goal",
+                "explanation": f"Trade 2 {offered_resource.name.title()} -> 1 {missing_resource.name.title()} | enables {goal_name}",
+            }
+            return ProposePlayerTrade(
+                player_id=player_id,
+                offered_resources=((offered_resource, offered_amount),),
+                requested_resources=((missing_resource, 1),),
+            )
+        if not candidates_1_for_1:
             return None
-        best_amount, best_resource = sorted(candidates, key=lambda item: (item[0], -player.resources.get(item[1], 0)))[0]
+        best_surplus = max(self._resource_surplus(player.resources, goal_cost, resource) for resource in candidates_1_for_1)
+        ties = [resource for resource in candidates_1_for_1 if self._resource_surplus(player.resources, goal_cost, resource) == best_surplus]
+        offered_resource = self._pick_tie(ties)
+        goal_name = "City" if goal_cost == _CITY_COST else "Settlement"
+        self._last_decision = {
+            "type": "trade",
+            "trade_shape": "1:1",
+            "goal": goal_name,
+            "missing_resource": missing_resource.name,
+            "offered_resource": offered_resource.name,
+            "offered_amount": 1,
+            "why_surplus": f"have {player.resources.get(offered_resource, 0)}, need {goal_cost.get(offered_resource, 0)} for goal",
+            "explanation": f"Trade 1 {offered_resource.name.title()} -> 1 {missing_resource.name.title()} | fallback 1:1 enables {goal_name}",
+        }
         return ProposePlayerTrade(
             player_id=player_id,
-            offered_resources=((best_resource, best_amount),),
+            offered_resources=((offered_resource, 1),),
             requested_resources=((missing_resource, 1),),
         )
+
+    def _resource_surplus(
+        self,
+        hand: dict[ResourceType, int],
+        goal_cost: dict[ResourceType, int],
+        resource: ResourceType,
+    ) -> int:
+        return hand.get(resource, 0) - goal_cost.get(resource, 0)
+
+    def _is_safe_trade_offer(
+        self,
+        hand: dict[ResourceType, int],
+        goal_cost: dict[ResourceType, int],
+        offer_resource: ResourceType,
+        amount: int,
+    ) -> bool:
+        return hand.get(offer_resource, 0) - amount >= goal_cost.get(offer_resource, 0)
 
     def _best_bank_trade_for_goal(self, legal_actions: Sequence[Action], cost: dict[ResourceType, int]) -> BankTrade | None:
         candidates: list[BankTrade] = []
@@ -293,35 +344,54 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
         roads = [a for a in legal_actions if isinstance(a, BuildRoad)]
         if not roads:
             return None
-        scored = sorted(roads, key=lambda action: self._road_progress_tuple(state, action.edge_id), reverse=True)
-        if self._road_progress_tuple(state, scored[0].edge_id)[0] > 0:
-            top = scored[0]
-            ties = [action for action in scored if self._road_progress_tuple(state, action.edge_id) == self._road_progress_tuple(state, top.edge_id)]
-            return self._pick_tie(ties)
-        if self._is_stalled(state):
-            top = sorted(roads, key=lambda action: self._road_stall_tuple(state, action.edge_id), reverse=True)[0]
-            return top
+        selected_target = self._select_future_settlement_target(state, legal_actions)
+        if selected_target is None:
+            return None
+        target_node, target_distance = selected_target
+        baseline = self._roads_to_node_distances(state)
+        current_distance = baseline.get(target_node)
+        if current_distance is None:
+            return None
+        candidates: list[BuildRoad] = []
+        best_tuple: tuple[int, int, int] | None = None
+        for action in roads:
+            after_distance = self._distance_to_target_with_planned_roads(state, target_node, {action.edge_id})
+            if after_distance is None:
+                continue
+            reduction = current_distance - after_distance
+            if reduction <= 0:
+                continue
+            toward_score = self._edge_toward_target_score(state, action.edge_id, target_node)
+            score = (reduction, toward_score[0], toward_score[1])
+            if best_tuple is None or score > best_tuple:
+                best_tuple = score
+                candidates = [action]
+            elif score == best_tuple:
+                candidates.append(action)
+        if candidates:
+            chosen = self._pick_tie(candidates)
+            self._last_decision = {
+                "type": "road",
+                "target_node": target_node,
+                "target_distance": target_distance,
+                "chosen_edge": chosen.edge_id,
+                "explanation": f"Road toward node {target_node} | distance {target_distance}",
+            }
+            return chosen
         return None
 
     def _road_progress_tuple(self, state: GameState, edge_id: int) -> tuple[int, int, int]:
-        if state.turn is None:
+        target = self._select_future_settlement_target(state, ())
+        if target is None:
             return (0, 0, 0)
-        player_id = state.turn.current_player
-        targets = self._candidate_settlement_targets(state)
-        if not targets:
+        target_node, _ = target
+        before_distance = self._distance_to_target_with_planned_roads(state, target_node, set())
+        after_distance = self._distance_to_target_with_planned_roads(state, target_node, {edge_id})
+        if before_distance is None or after_distance is None:
             return (0, 0, 0)
-        anchors = self._road_anchors(state, player_id)
-        node_a, node_b = state.board.edge_to_adjacent_nodes[edge_id]
-        expanded_anchors = anchors | {node_a, node_b}
-        best: tuple[int, int, int] | None = None
-        for node_id in targets:
-            distance = self._node_distance_to_target(state, expanded_anchors, node_id)
-            if distance is None:
-                continue
-            candidate = (1, self._node_pip_total(state, node_id), -distance)
-            if best is None or candidate > best:
-                best = candidate
-        return best or (0, 0, 0)
+        reduction = max(0, before_distance - after_distance)
+        toward = self._edge_toward_target_score(state, edge_id, target_node)
+        return (reduction, toward[0], toward[1])
 
     def _road_anchors(self, state: GameState, player_id: int) -> set[NodeId]:
         anchors = {node_id for node_id, owner in state.placed.settlements.items() if owner == player_id}
@@ -334,25 +404,90 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
             anchors.add(node_b)
         return anchors
 
-    def _node_distance_to_target(self, state: GameState, starts: set[NodeId], target: NodeId) -> int | None:
-        if target in starts:
-            return 0
-        frontier = list(starts)
-        seen = set(starts)
-        distance = 0
-        while frontier:
-            distance += 1
-            next_frontier: list[NodeId] = []
-            for node in frontier:
-                for neighbor in state.board.node_neighbors(node):
-                    if neighbor in seen:
-                        continue
-                    if neighbor == target:
-                        return distance
-                    seen.add(neighbor)
-                    next_frontier.append(neighbor)
-            frontier = next_frontier
-        return None
+    def _select_future_settlement_target(self, state: GameState, legal_actions: Sequence[Action]) -> tuple[NodeId, int] | None:
+        targets = self._valid_future_settlement_targets(state, legal_actions)
+        if not targets:
+            return None
+        ranked = sorted(
+            targets,
+            key=lambda item: (
+                item[1],
+                -self._node_pip_total(state, item[0]),
+                -self._node_resource_diversity(state, item[0]),
+            ),
+        )
+        best = ranked[0]
+        ties = [
+            item
+            for item in ranked
+            if (
+                item[1],
+                self._node_pip_total(state, item[0]),
+                self._node_resource_diversity(state, item[0]),
+            )
+            == (
+                best[1],
+                self._node_pip_total(state, best[0]),
+                self._node_resource_diversity(state, best[0]),
+            )
+        ]
+        return self._pick_tie(ties)
+
+    def _valid_future_settlement_targets(self, state: GameState, legal_actions: Sequence[Action]) -> list[tuple[NodeId, int]]:
+        currently_buildable = {action.node_id for action in legal_actions if isinstance(action, BuildSettlement)}
+        distances = self._roads_to_node_distances(state)
+        targets: list[tuple[NodeId, int]] = []
+        for node_id in self._candidate_settlement_targets(state):
+            if node_id in currently_buildable:
+                continue
+            distance = distances.get(node_id)
+            if distance is None or distance <= 0:
+                continue
+            targets.append((node_id, distance))
+        return targets
+
+    def _roads_to_node_distances(self, state: GameState, planned_roads: set[int] | None = None) -> dict[NodeId, int]:
+        if state.turn is None:
+            return {}
+        player_id = state.turn.current_player
+        anchors = self._road_anchors(state, player_id)
+        if not anchors:
+            return {}
+        traversable = {edge_id for edge_id, owner in state.placed.roads.items() if owner == player_id}
+        traversable.update(edge_id for edge_id in state.board.edge_to_adjacent_nodes if edge_id not in state.placed.roads)
+        if planned_roads:
+            traversable.update(planned_roads)
+        distances = {node_id: 0 for node_id in anchors}
+        queue: deque[NodeId] = deque(anchors)
+        while queue:
+            node_id = queue.popleft()
+            for edge_id in state.board.node_to_adjacent_edges.get(node_id, ()):
+                if edge_id not in traversable:
+                    continue
+                node_a, node_b = state.board.edge_to_adjacent_nodes[edge_id]
+                neighbor = node_b if node_a == node_id else node_a
+                edge_cost = 0 if state.placed.roads.get(edge_id) == player_id or (planned_roads and edge_id in planned_roads) else 1
+                cand = distances[node_id] + edge_cost
+                if neighbor not in distances or cand < distances[neighbor]:
+                    distances[neighbor] = cand
+                    if edge_cost == 0:
+                        queue.appendleft(neighbor)
+                    else:
+                        queue.append(neighbor)
+        return distances
+
+    def _distance_to_target_with_planned_roads(self, state: GameState, target: NodeId, planned_roads: set[int]) -> int | None:
+        return self._roads_to_node_distances(state, planned_roads).get(target)
+
+    def _edge_toward_target_score(self, state: GameState, edge_id: int, target: NodeId) -> tuple[int, int]:
+        base = self._roads_to_node_distances(state)
+        planned = self._roads_to_node_distances(state, {edge_id})
+        node_a, node_b = state.board.edge_to_adjacent_nodes[edge_id]
+        candidate_nodes = [node_id for node_id in (node_a, node_b) if planned.get(node_id, 99) < base.get(node_id, 99)]
+        if not candidate_nodes:
+            candidate_nodes = [node_a, node_b]
+        best_node = min(candidate_nodes, key=lambda node_id: planned.get(node_id, 99) + (0 if node_id == target else 1))
+        return (self._node_pip_total(state, best_node), self._node_resource_diversity(state, best_node))
 
     def _road_stall_tuple(self, state: GameState, edge_id: int) -> tuple[int, int]:
         node_a, node_b = state.board.edge_to_adjacent_nodes[edge_id]
@@ -460,7 +595,9 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
             return None
         if any(isinstance(a, BuildSettlement) for a in legal_actions):
             return None
-        return action if any(isinstance(a, BuildRoad) for a in legal_actions) else None
+        if not any(isinstance(a, BuildRoad) for a in legal_actions):
+            return None
+        return action if self._select_future_settlement_target(state, legal_actions) is not None else None
 
     def _playable_monopoly(self, state: GameState, legal_actions: Sequence[Action]) -> PlayMonopolyCard | None:
         action = next((a for a in legal_actions if isinstance(a, PlayMonopolyCard)), None)
