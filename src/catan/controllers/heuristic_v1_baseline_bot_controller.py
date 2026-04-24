@@ -101,7 +101,6 @@ class HeuristicV1BaselineBotController:
         self._bank_trades_this_turn = 0
         self._player_trade_proposals_this_turn = 0
         self._last_turn_player_id: int | None = None
-        self._turn_start_player_trades_completed: int = 0
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
         candidates = list(legal_actions)
@@ -476,7 +475,6 @@ class HeuristicV1BaselineBotController:
             self._bank_trades_this_turn = 0
             self._player_trade_proposals_this_turn = 0
             self._last_turn_player_id = None
-            self._turn_start_player_trades_completed = 0
             return
         if state.turn.step != TurnStep.ACTIONS:
             self._bank_trades_this_turn = 0
@@ -484,7 +482,6 @@ class HeuristicV1BaselineBotController:
             self._bank_trades_this_turn = 0
             self._player_trade_proposals_this_turn = 0
             self._last_turn_player_id = state.turn.current_player
-            self._turn_start_player_trades_completed = state.players[state.turn.current_player].player_trades_completed
 
     def _candidate_player_trades(self, state: GameState, legal_actions: Sequence[Action]) -> list[ProposePlayerTrade]:
         if state.turn is None or state.turn.step != TurnStep.ACTIONS or state.player_trade is not None:
@@ -492,10 +489,8 @@ class HeuristicV1BaselineBotController:
         current_player = state.turn.current_player
         if not any(action.player_id == current_player for action in legal_actions):
             return []
-        base_limit = max(0, int(self._params.max_bot_trade_proposals_per_turn))
-        successful_trades_this_turn = max(0, state.players[current_player].player_trades_completed - self._turn_start_player_trades_completed)
-        dynamic_trade_proposal_limit = base_limit + successful_trades_this_turn
-        if self._player_trade_proposals_this_turn >= dynamic_trade_proposal_limit:
+        proposal_limit = max(0, int(self._params.max_bot_trade_proposals_per_turn))
+        if self._player_trade_proposals_this_turn >= proposal_limit:
             return []
         player = state.players[current_player]
         opponents = [p for p in state.players.values() if p.player_id != current_player]

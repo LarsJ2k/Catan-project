@@ -254,3 +254,23 @@ def test_heuristic_rejects_no_progress_bank_trade() -> None:
     trade = BankTrade(player_id=1, offer_resource=ResourceType.WOOL, request_resource=ResourceType.BRICK, trade_rate=4)
     chosen = bot.choose_action(DebugObservation(state=state), [trade, EndTurn(player_id=1)])
     assert isinstance(chosen, EndTurn)
+
+
+def test_heuristic_successful_trade_does_not_increase_player_trade_proposal_limit() -> None:
+    bot = HeuristicBotController(seed=42, enable_delay=False)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3), board=build_classic_19_tile_board(), seed=314))
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    state.players[1].resources = {
+        ResourceType.BRICK: 2,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 2,
+        ResourceType.ORE: 1,
+    }
+    state.players[2].resources[ResourceType.ORE] = 1
+    state.players[1].player_trades_completed += 3
+
+    bot._prepare_turn_context(state)
+    bot._player_trade_proposals_this_turn = 1
+
+    assert bot._candidate_player_trades(state, [EndTurn(player_id=1)]) == []
