@@ -4,6 +4,7 @@ from catan.controllers.simple_goal_bot_controller import SimpleGoalBotController
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
 from catan.core.models.action import (
+    BankTrade,
     BuildCity,
     BuildRoad,
     BuildSettlement,
@@ -33,7 +34,7 @@ def _main_turn_state(seed: int = 5):
     return state
 
 
-def test_city_priority_over_other_actions() -> None:
+def test_settlement_priority_over_city_when_location_exists() -> None:
     state = _main_turn_state(13)
     bot = SimpleGoalBotController(seed=1, enable_delay=False)
 
@@ -46,7 +47,7 @@ def test_city_priority_over_other_actions() -> None:
         ],
     )
 
-    assert isinstance(chosen, BuildCity)
+    assert isinstance(chosen, BuildSettlement)
 
 
 def test_settlement_priority_when_city_not_possible() -> None:
@@ -93,6 +94,83 @@ def test_road_behavior_only_when_no_settlement_available() -> None:
 
     assert isinstance(with_settlement, BuildSettlement)
     assert isinstance(without_settlement, BuildRoad)
+
+
+def test_saves_for_settlement_when_location_exists_without_resources() -> None:
+    state = _main_turn_state(32)
+    bot = SimpleGoalBotController(seed=32, enable_delay=False)
+    state.players[1].resources = {resource: 0 for resource in ResourceType}
+    state.placed.settlements[0] = 1
+
+    path: tuple[int, int] | None = None
+    for first_edge in state.board.node_to_adjacent_edges[0]:
+        first_a, first_b = state.board.edge_to_adjacent_nodes[first_edge]
+        first_neighbor = first_b if first_a == 0 else first_a
+        for second_edge in state.board.node_to_adjacent_edges[first_neighbor]:
+            if second_edge == first_edge:
+                continue
+            state.placed.roads = {first_edge: 1, second_edge: 1}
+            if bot._has_immediate_settlement_location(state, [EndTurn(player_id=1)]):
+                path = (first_edge, second_edge)
+                break
+        if path is not None:
+            break
+    assert path is not None
+
+    progress_edge = next(edge.id for edge in state.board.edges if bot._road_progress_tuple(state, edge.id)[0] > 0)
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [BuildRoad(player_id=1, edge_id=progress_edge), EndTurn(player_id=1)],
+    )
+    assert isinstance(chosen, EndTurn)
+
+
+def test_skips_road_building_and_non_settlement_trade_when_immediate_settlement_exists() -> None:
+    state = _main_turn_state(33)
+    bot = SimpleGoalBotController(seed=33, enable_delay=False)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 0,
+        ResourceType.ORE: 4,
+    }
+    state.placed.settlements[0] = 1
+
+    path: tuple[int, int] | None = None
+    for first_edge in state.board.node_to_adjacent_edges[0]:
+        first_a, first_b = state.board.edge_to_adjacent_nodes[first_edge]
+        first_neighbor = first_b if first_a == 0 else first_a
+        for second_edge in state.board.node_to_adjacent_edges[first_neighbor]:
+            if second_edge == first_edge:
+                continue
+            state.placed.roads = {first_edge: 1, second_edge: 1}
+            if bot._has_immediate_settlement_location(state, [EndTurn(player_id=1)]):
+                path = (first_edge, second_edge)
+                break
+        if path is not None:
+            break
+    assert path is not None
+
+    progress_edge = next(edge.id for edge in state.board.edges if bot._road_progress_tuple(state, edge.id)[0] > 0)
+    trade_for_road = BankTrade(
+        player_id=1,
+        offer_resource=ResourceType.ORE,
+        request_resource=ResourceType.BRICK,
+        trade_rate=4,
+        via_port_resource=None,
+    )
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [
+            PlayRoadBuildingCard(player_id=1),
+            BuildRoad(player_id=1, edge_id=progress_edge),
+            trade_for_road,
+            EndTurn(player_id=1),
+        ],
+    )
+
+    assert isinstance(chosen, EndTurn)
 
 
 def test_trade_proposal_only_when_directly_enables_goal() -> None:
