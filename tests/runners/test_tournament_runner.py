@@ -238,6 +238,11 @@ def test_aggregation_correctness() -> None:
                     player_trades_proposed=1,
                     player_trades_completed=1,
                     total_resources_earned=14,
+                    resources_earned_brick=3,
+                    resources_earned_lumber=2,
+                    resources_earned_wool=4,
+                    resources_earned_grain=3,
+                    resources_earned_ore=2,
                 ),
                 MatchSeatResult(
                     bot_id=ControllerType.HEURISTIC_BOT.value,
@@ -258,6 +263,11 @@ def test_aggregation_correctness() -> None:
                     player_trades_proposed=2,
                     player_trades_completed=0,
                     total_resources_earned=11,
+                    resources_earned_brick=2,
+                    resources_earned_lumber=1,
+                    resources_earned_wool=3,
+                    resources_earned_grain=4,
+                    resources_earned_ore=1,
                 ),
                 MatchSeatResult(
                     bot_id=ControllerType.RANDOM_BOT.value,
@@ -278,6 +288,11 @@ def test_aggregation_correctness() -> None:
                     player_trades_proposed=0,
                     player_trades_completed=0,
                     total_resources_earned=9,
+                    resources_earned_brick=1,
+                    resources_earned_lumber=3,
+                    resources_earned_wool=2,
+                    resources_earned_grain=1,
+                    resources_earned_ore=2,
                 ),
                 MatchSeatResult(
                     bot_id=ControllerType.HEURISTIC_BOT.value,
@@ -298,6 +313,11 @@ def test_aggregation_correctness() -> None:
                     player_trades_proposed=1,
                     player_trades_completed=0,
                     total_resources_earned=6,
+                    resources_earned_brick=1,
+                    resources_earned_lumber=1,
+                    resources_earned_wool=1,
+                    resources_earned_grain=2,
+                    resources_earned_ore=1,
                 ),
             ),
         ),
@@ -312,6 +332,7 @@ def test_aggregation_correctness() -> None:
     assert aggregates[ControllerType.RANDOM_BOT.value].performance_by_seat[1]["wins"] == 1.0
     assert aggregates[ControllerType.RANDOM_BOT.value].performance_by_seat[3]["games"] == 1.0
     assert aggregates[ControllerType.RANDOM_BOT.value].average_dev_cards_bought == 3.5
+    assert aggregates[ControllerType.RANDOM_BOT.value].average_resources_earned_wool == 3.0
 
 
 def test_export_json_and_excel(tmp_path: Path) -> None:
@@ -351,8 +372,12 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert "match_duration_seconds" in match_rows[0]
     assert "seat1_vp_total" in match_rows[0]
     assert "seat1_total_resources_earned" in match_rows[0]
+    assert "seat1_resources_earned_brick" in match_rows[0]
+    assert "seat1_resources_earned_ore" in match_rows[0]
     assert "seat1_total_resources_in_hand" not in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
+    assert "average_resources_earned_brick" in summary_rows[0]
+    assert "average_resources_earned_ore" in summary_rows[0]
     match_csv_rows = _read_csv_rows(match_csv)
     summary_csv_rows = _read_csv_rows(summary_csv)
     assert len(match_csv_rows) - 1 == len(result.matches)

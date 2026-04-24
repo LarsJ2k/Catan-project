@@ -14,7 +14,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
-from catan.core.models.enums import DevelopmentCardType
+from catan.core.models.enums import DevelopmentCardType, ResourceType
 from catan.core.models.state import GameState, InitialGameConfig
 from catan.controllers.heuristic_v2_profiling import GLOBAL_V2_PROFILING_STATS
 from catan.runners.game_setup import GameLaunchConfig, PlayerSlotConfig
@@ -77,6 +77,11 @@ class MatchSeatResult:
     player_trades_proposed: int
     player_trades_completed: int
     total_resources_earned: int
+    resources_earned_brick: int = 0
+    resources_earned_lumber: int = 0
+    resources_earned_wool: int = 0
+    resources_earned_grain: int = 0
+    resources_earned_ore: int = 0
 
 
 @dataclass(frozen=True)
@@ -140,6 +145,11 @@ class BotAggregate:
     average_player_trades_proposed: float
     average_player_trades_completed: float
     average_total_resources_count: float
+    average_resources_earned_brick: float
+    average_resources_earned_lumber: float
+    average_resources_earned_wool: float
+    average_resources_earned_grain: float
+    average_resources_earned_ore: float
     average_road_count: float
     average_settlement_count: float
     average_cities_count: float
@@ -344,6 +354,7 @@ def _build_seat_result(state: GameState, seat_order: tuple[str, ...], seat_index
     player_id = seat_index + 1
     player = state.players[player_id]
     hidden_vp = player.dev_cards.get(DevelopmentCardType.VICTORY_POINT, 0)
+    resources_earned = player.resources_earned_by_type
     return MatchSeatResult(
         bot_id=seat_order[seat_index],
         vp_visible=_visible_victory_points(state, player_id),
@@ -363,6 +374,11 @@ def _build_seat_result(state: GameState, seat_order: tuple[str, ...], seat_index
         player_trades_proposed=player.player_trades_proposed,
         player_trades_completed=player.player_trades_completed,
         total_resources_earned=player.total_resources_earned,
+        resources_earned_brick=resources_earned.get(ResourceType.BRICK, 0),
+        resources_earned_lumber=resources_earned.get(ResourceType.LUMBER, 0),
+        resources_earned_wool=resources_earned.get(ResourceType.WOOL, 0),
+        resources_earned_grain=resources_earned.get(ResourceType.GRAIN, 0),
+        resources_earned_ore=resources_earned.get(ResourceType.ORE, 0),
     )
 
 
@@ -434,6 +450,11 @@ def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[str, BotAggregat
             average_total_resources_count=float(mean(seat.total_resources_earned for _, _, seat in entries))
             if games
             else 0.0,
+            average_resources_earned_brick=float(mean(seat.resources_earned_brick for _, _, seat in entries)) if games else 0.0,
+            average_resources_earned_lumber=float(mean(seat.resources_earned_lumber for _, _, seat in entries)) if games else 0.0,
+            average_resources_earned_wool=float(mean(seat.resources_earned_wool for _, _, seat in entries)) if games else 0.0,
+            average_resources_earned_grain=float(mean(seat.resources_earned_grain for _, _, seat in entries)) if games else 0.0,
+            average_resources_earned_ore=float(mean(seat.resources_earned_ore for _, _, seat in entries)) if games else 0.0,
             average_road_count=float(mean(seat.roads_built for _, _, seat in entries)) if games else 0.0,
             average_settlement_count=float(mean(seat.settlements_built for _, _, seat in entries)) if games else 0.0,
             average_cities_count=float(mean(seat.cities_built for _, _, seat in entries)) if games else 0.0,
@@ -507,6 +528,11 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                             "player_trades_proposed": seat_result.player_trades_proposed,
                             "player_trades_completed": seat_result.player_trades_completed,
                             "total_resources_earned": seat_result.total_resources_earned,
+                            "resources_earned_brick": seat_result.resources_earned_brick,
+                            "resources_earned_lumber": seat_result.resources_earned_lumber,
+                            "resources_earned_wool": seat_result.resources_earned_wool,
+                            "resources_earned_grain": seat_result.resources_earned_grain,
+                            "resources_earned_ore": seat_result.resources_earned_ore,
                         }
                         for seat_idx, seat_result in enumerate(match.seat_results, start=1)
                     ],
@@ -532,6 +558,11 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                     "average_player_trades_proposed": agg.average_player_trades_proposed,
                     "average_player_trades_completed": agg.average_player_trades_completed,
                     "average_total_resources_count": agg.average_total_resources_count,
+                    "average_resources_earned_brick": agg.average_resources_earned_brick,
+                    "average_resources_earned_lumber": agg.average_resources_earned_lumber,
+                    "average_resources_earned_wool": agg.average_resources_earned_wool,
+                    "average_resources_earned_grain": agg.average_resources_earned_grain,
+                    "average_resources_earned_ore": agg.average_resources_earned_ore,
                     "average_road_count": agg.average_road_count,
                     "average_settlement_count": agg.average_settlement_count,
                     "average_cities_count": agg.average_cities_count,
@@ -628,6 +659,11 @@ def _match_csv_headers() -> list[str]:
                 f"{prefix}_player_trades_proposed",
                 f"{prefix}_player_trades_completed",
                 f"{prefix}_total_resources_earned",
+                f"{prefix}_resources_earned_brick",
+                f"{prefix}_resources_earned_lumber",
+                f"{prefix}_resources_earned_wool",
+                f"{prefix}_resources_earned_grain",
+                f"{prefix}_resources_earned_ore",
             ]
         )
     return headers
@@ -670,6 +706,11 @@ def _match_csv_row(match: MatchResult) -> list[str | int | bool]:
                 seat_result.player_trades_proposed,
                 seat_result.player_trades_completed,
                 seat_result.total_resources_earned,
+                seat_result.resources_earned_brick,
+                seat_result.resources_earned_lumber,
+                seat_result.resources_earned_wool,
+                seat_result.resources_earned_grain,
+                seat_result.resources_earned_ore,
             ]
         )
     return row
@@ -695,6 +736,11 @@ def _summary_csv_headers() -> list[str]:
         "average_player_trades_proposed",
         "average_player_trades_completed",
         "average_total_resources_count",
+        "average_resources_earned_brick",
+        "average_resources_earned_lumber",
+        "average_resources_earned_wool",
+        "average_resources_earned_grain",
+        "average_resources_earned_ore",
         "average_road_count",
         "average_settlement_count",
         "average_cities_count",
@@ -733,6 +779,11 @@ def _summary_csv_row(aggregate: BotAggregate) -> list[str | int | float]:
         aggregate.average_player_trades_proposed,
         aggregate.average_player_trades_completed,
         aggregate.average_total_resources_count,
+        aggregate.average_resources_earned_brick,
+        aggregate.average_resources_earned_lumber,
+        aggregate.average_resources_earned_wool,
+        aggregate.average_resources_earned_grain,
+        aggregate.average_resources_earned_ore,
         aggregate.average_road_count,
         aggregate.average_settlement_count,
         aggregate.average_cities_count,

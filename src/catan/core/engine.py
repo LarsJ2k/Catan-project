@@ -585,11 +585,8 @@ def _resolve_robber_steal(state: GameState, player_id: PlayerId, target_player_i
     resource = available[value % len(available)]
 
     target_res = dict(target.resources)
-    taker_res = dict(taker.resources)
     target_res[resource] -= 1
-    taker_res[resource] += 1
-
-    updated_taker = replace(taker, resources=taker_res, total_resources_earned=taker.total_resources_earned + 1)
+    updated_taker = _add_resources(taker, {resource: 1})
     return replace(
         state,
         rng_state=next_rng,
@@ -794,14 +791,11 @@ def _apply_play_year_of_plenty_card(state: GameState, action: PlayYearOfPlentyCa
 
 def _apply_choose_year_of_plenty_resources(state: GameState, action: ChooseYearOfPlentyResources) -> GameState:
     player = state.players[action.player_id]
-    resources = dict(player.resources)
-    resources[action.first_resource] += 1
-    resources[action.second_resource] += 1
     return replace(
         state,
         players={
             **state.players,
-            action.player_id: replace(player, resources=resources, total_resources_earned=player.total_resources_earned + 2),
+            action.player_id: _add_resources(player, {action.first_resource: 1, action.second_resource: 1}),
         },
         turn=replace(state.turn, step=TurnStep.ACTIONS, priority_player=None),
         dev_card_flow=None,
@@ -840,13 +834,7 @@ def _apply_choose_monopoly_resource(state: GameState, action: ChooseMonopolyReso
         next_res = dict(player.resources)
         next_res[action.resource] = 0
         players[player_id] = replace(player, resources=next_res)
-    collector_res = dict(collector.resources)
-    collector_res[action.resource] += total_collected
-    players[action.player_id] = replace(
-        collector,
-        resources=collector_res,
-        total_resources_earned=collector.total_resources_earned + total_collected,
-    )
+    players[action.player_id] = _add_resources(collector, {action.resource: total_collected})
     return replace(
         state,
         players=players,
@@ -859,17 +847,12 @@ def _apply_bank_trade(state: GameState, action: BankTrade) -> GameState:
     player = state.players[action.player_id]
     resources = dict(player.resources)
     resources[action.offer_resource] -= action.trade_rate
-    resources[action.request_resource] += 1
+    paid_player = replace(player, resources=resources, bank_trades_count=player.bank_trades_count + 1)
     return replace(
         state,
         players={
             **state.players,
-            action.player_id: replace(
-                player,
-                resources=resources,
-                bank_trades_count=player.bank_trades_count + 1,
-                total_resources_earned=player.total_resources_earned + 1,
-            ),
+            action.player_id: _add_resources(paid_player, {action.request_resource: 1}),
         },
     )
 
@@ -919,15 +902,13 @@ def _apply_choose_trade_partner(state: GameState, action: ChooseTradePartner) ->
     requested_bundle = _bundle_to_dict(trade.requested_resources)
     proposer = _apply_resource_bundle_delta(state.players[action.player_id], proposer_bundle, requested_bundle)
     partner = _apply_resource_bundle_delta(state.players[action.partner_player_id], requested_bundle, proposer_bundle)
-    proposer = replace(
-        proposer,
-        player_trades_completed=proposer.player_trades_completed + 1,
-        total_resources_earned=proposer.total_resources_earned + sum(requested_bundle.values()),
+    proposer = _add_earned_resources_only(
+        replace(proposer, player_trades_completed=proposer.player_trades_completed + 1),
+        requested_bundle,
     )
-    partner = replace(
-        partner,
-        player_trades_completed=partner.player_trades_completed + 1,
-        total_resources_earned=partner.total_resources_earned + sum(proposer_bundle.values()),
+    partner = _add_earned_resources_only(
+        replace(partner, player_trades_completed=partner.player_trades_completed + 1),
+        proposer_bundle,
     )
     return replace(
         state,
@@ -1056,19 +1037,17 @@ def _apply_end_turn(state: GameState) -> GameState:
 
 def _grant_setup_starting_resources(state: GameState, player_id: PlayerId, node_id: NodeId) -> GameState:
     player = state.players[player_id]
-    resources = dict(player.resources)
-    gained_resources = 0
+    gains: dict[ResourceType, int] = {}
     for tile_id in state.board.node_to_adjacent_tiles.get(node_id, ()): 
         tile = state.board.tiles[tile_id]
         resource = TERRAIN_TO_RESOURCE.get(tile.terrain)
         if resource is not None:
-            resources[resource] += 1
-            gained_resources += 1
+            gains[resource] = gains.get(resource, 0) + 1
     return replace(
         state,
         players={
             **state.players,
-            player_id: replace(player, resources=resources, total_resources_earned=player.total_resources_earned + gained_resources),
+            player_id: _add_resources(player, gains),
         },
     )
 
@@ -1090,23 +1069,38 @@ def _distribute_roll_resources(state: GameState, roll_total: int) -> GameState:
             city_owner = state.placed.cities.get(node_id)
             if settlement_owner is not None:
                 p = players[settlement_owner]
-                res = dict(p.resources)
-                res[resource] += 1
-                players[settlement_owner] = replace(
-                    p,
-                    resources=res,
-                    total_resources_earned=p.total_resources_earned + 1,
-                )
+                players[settlement_owner] = _add_resources(p, {resource: 1})
             elif city_owner is not None:
                 p = players[city_owner]
-                res = dict(p.resources)
-                res[resource] += 2
-                players[city_owner] = replace(
-                    p,
-                    resources=res,
-                    total_resources_earned=p.total_resources_earned + 2,
-                )
+                players[city_owner] = _add_resources(p, {resource: 2})
     return replace(state, players=players)
+
+
+def _add_earned_resources_only(player: PlayerState, gains: dict[ResourceType, int]) -> PlayerState:
+    total_gained = 0
+    earned_by_type = dict(player.resources_earned_by_type)
+    for resource, amount in gains.items():
+        if amount <= 0:
+            continue
+        total_gained += amount
+        earned_by_type[resource] = earned_by_type.get(resource, 0) + amount
+    if total_gained == 0:
+        return player
+    return replace(
+        player,
+        total_resources_earned=player.total_resources_earned + total_gained,
+        resources_earned_by_type=earned_by_type,
+    )
+
+
+def _add_resources(player: PlayerState, gains: dict[ResourceType, int]) -> PlayerState:
+    resources = dict(player.resources)
+    for resource, amount in gains.items():
+        if amount <= 0:
+            continue
+        resources[resource] += amount
+    player_with_resources = replace(player, resources=resources)
+    return _add_earned_resources_only(player_with_resources, gains)
 
 
 def _has_resources(player: PlayerState, cost: dict[ResourceType, int]) -> bool:
