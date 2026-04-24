@@ -137,7 +137,12 @@ class BotAggregate:
     average_dev_cards_bought: float
     average_dev_cards_played: float
     average_bank_trades_count: float
+    average_player_trades_proposed: float
     average_player_trades_completed: float
+    average_total_resources_count: float
+    average_road_count: float
+    average_settlement_count: float
+    average_cities_count: float
     performance_by_seat: dict[int, dict[str, float]]
 
     @property
@@ -422,7 +427,16 @@ def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[str, BotAggregat
             average_dev_cards_bought=float(mean(seat.dev_cards_bought for _, _, seat in entries)) if games else 0.0,
             average_dev_cards_played=float(mean(seat.dev_cards_played for _, _, seat in entries)) if games else 0.0,
             average_bank_trades_count=float(mean(seat.bank_trades_count for _, _, seat in entries)) if games else 0.0,
+            average_player_trades_proposed=float(mean(seat.player_trades_proposed for _, _, seat in entries))
+            if games
+            else 0.0,
             average_player_trades_completed=float(mean(seat.player_trades_completed for _, _, seat in entries)) if games else 0.0,
+            average_total_resources_count=float(mean(seat.total_resources_earned for _, _, seat in entries))
+            if games
+            else 0.0,
+            average_road_count=float(mean(seat.roads_built for _, _, seat in entries)) if games else 0.0,
+            average_settlement_count=float(mean(seat.settlements_built for _, _, seat in entries)) if games else 0.0,
+            average_cities_count=float(mean(seat.cities_built for _, _, seat in entries)) if games else 0.0,
             performance_by_seat=by_seat,
         )
     return aggregates
@@ -515,7 +529,12 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                     "average_dev_cards_bought": agg.average_dev_cards_bought,
                     "average_dev_cards_played": agg.average_dev_cards_played,
                     "average_bank_trades_count": agg.average_bank_trades_count,
+                    "average_player_trades_proposed": agg.average_player_trades_proposed,
                     "average_player_trades_completed": agg.average_player_trades_completed,
+                    "average_total_resources_count": agg.average_total_resources_count,
+                    "average_road_count": agg.average_road_count,
+                    "average_settlement_count": agg.average_settlement_count,
+                    "average_cities_count": agg.average_cities_count,
                     "performance_by_seat": agg.performance_by_seat,
                 }
                 for bot, agg in result.aggregates.items()
@@ -673,7 +692,12 @@ def _summary_csv_headers() -> list[str]:
         "average_dev_cards_bought",
         "average_dev_cards_played",
         "average_bank_trades_count",
+        "average_player_trades_proposed",
         "average_player_trades_completed",
+        "average_total_resources_count",
+        "average_road_count",
+        "average_settlement_count",
+        "average_cities_count",
         "seat1_games",
         "seat1_wins",
         "seat1_win_rate",
@@ -706,7 +730,12 @@ def _summary_csv_row(aggregate: BotAggregate) -> list[str | int | float]:
         aggregate.average_dev_cards_bought,
         aggregate.average_dev_cards_played,
         aggregate.average_bank_trades_count,
+        aggregate.average_player_trades_proposed,
         aggregate.average_player_trades_completed,
+        aggregate.average_total_resources_count,
+        aggregate.average_road_count,
+        aggregate.average_settlement_count,
+        aggregate.average_cities_count,
     ]
     for seat in range(1, 5):
         seat_data = aggregate.performance_by_seat.get(seat, {"games": 0.0, "wins": 0.0, "win_rate": 0.0})
