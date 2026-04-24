@@ -183,3 +183,13 @@ def test_tournament_setup_add_remove_bot_list_flow() -> None:
 
     removed = state.remove_selected_bot_at(0)
     assert removed.selected_bots == (ControllerType.HEURISTIC_BOT.value,)
+
+
+def test_tournament_setup_can_toggle_stalled_games_debug_export() -> None:
+    state = TournamentSetupState(
+        selected_bots=(ControllerType.RANDOM_BOT.value,),
+        format=TournamentFormat.FIXED_LINEUP_BATCH.value,
+    )
+    config = state.with_export_stalled_games_debug(True).to_tournament_config()
+    assert config is not None
+    assert config.output_options.write_stalled_games_debug is True
