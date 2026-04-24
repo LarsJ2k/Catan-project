@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
+from catan.core.board_factory import build_classic_19_tile_board
+from catan.core.engine import create_initial_state
+from catan.core.models.action import EndTurn
+from catan.core.models.state import InitialGameConfig
+from catan.runners.headless_runner import HeadlessRunner, StuckGameConfig
 from catan.runners.game_setup import ControllerType, TournamentSetupState
 from catan.runners.tournament import (
     HeadlessTournamentRunner,
@@ -119,6 +125,7 @@ def test_headless_tournament_runner_executes_without_ui() -> None:
 
     assert len(result.matches) == 1
     assert result.matches[0].winner in (ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value, None)
+    assert result.matches[0].termination_reason in {"win", "stalled", "max_steps"}
     assert result.aggregates[ControllerType.RANDOM_BOT.value].games_played == 2
     assert result.aggregates[ControllerType.HEURISTIC_BOT.value].games_played == 2
 
@@ -140,8 +147,9 @@ def test_winning_match_reports_total_vp_for_winner() -> None:
     result = HeadlessTournamentRunner().run(config)
 
     winner = result.matches[0].winner
-    assert winner is not None
-    assert max(result.matches[0].final_vp_by_seat) >= 10
+    if result.matches[0].termination_reason == "win":
+        assert winner is not None
+        assert max(result.matches[0].final_vp_by_seat) >= 10
     assert result.matches[0].turn_count > 0
     assert result.matches[0].full_turn_count >= 0
     assert result.matches[0].winner_seat in (1, 2, 3, 4)
@@ -204,9 +212,11 @@ def test_aggregation_correctness() -> None:
             seat_rotation_block_id=0,
             winner_bot_id=ControllerType.RANDOM_BOT.value,
             winner_seat=1,
+            termination_reason="win",
             match_duration_seconds=12.5,
             turn_count=120,
             full_turn_count=30,
+            debug_snapshot=None,
             seat_results=(
                 MatchSeatResult(
                     bot_id=ControllerType.RANDOM_BOT.value,
@@ -332,11 +342,16 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert len(summary_rows) - 1 == len(result.aggregates)
     assert "match_id" in match_rows[0]
     assert "full_turn_count" in match_rows[0]
+    assert "termination_reason" in match_rows[0]
     assert "match_duration_seconds" in match_rows[0]
     assert "seat1_vp_total" in match_rows[0]
     assert "seat1_total_resources_earned" in match_rows[0]
     assert "seat1_total_resources_in_hand" not in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
+    payload = json_path.read_text(encoding="utf-8")
+    assert "\"completed_games\"" in payload
+    assert "\"stalled_games\"" in payload
+    assert "\"max_step_games\"" in payload
 
 
 def test_tournament_id_increments_between_runs(tmp_path: Path) -> None:
@@ -404,3 +419,166 @@ def test_tournament_runner_disables_bot_delay(monkeypatch) -> None:
     HeadlessTournamentRunner().run(config)
 
     assert slept["count"] == 0
+
+
+def test_max_steps_game_sets_termination_reason_max_steps(monkeypatch) -> None:
+    board = build_classic_19_tile_board(seed=1)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3, 4), board=board, seed=1))
+    runner = HeadlessRunner()
+
+    monkeypatch.setattr("catan.runners.headless_runner.is_terminal", lambda _state: False)
+    monkeypatch.setattr("catan.runners.headless_runner.get_legal_actions", lambda _state, pid: (EndTurn(player_id=pid),))
+    monkeypatch.setattr("catan.runners.headless_runner.apply_action", lambda game_state, _action: game_state)
+
+    controllers = {pid: _DeterministicController() for pid in range(1, 5)}
+    result = runner.play_until_terminal_with_result(state, controllers, max_steps=5, stuck_config=StuckGameConfig(no_vp_change_step_limit=999, no_progress_step_limit=999))
+
+    assert result.termination_reason == "max_steps"
+    assert result.stalled_debug_snapshot is not None
+
+
+def test_no_progress_loop_sets_termination_reason_stalled(monkeypatch) -> None:
+    board = build_classic_19_tile_board(seed=2)
+    state = create_initial_state(InitialGameConfig(player_ids=(1, 2, 3, 4), board=board, seed=2))
+    runner = HeadlessRunner()
+
+    monkeypatch.setattr("catan.runners.headless_runner.is_terminal", lambda _state: False)
+    monkeypatch.setattr("catan.runners.headless_runner.get_legal_actions", lambda _state, pid: (EndTurn(player_id=pid),))
+    monkeypatch.setattr("catan.runners.headless_runner.apply_action", lambda game_state, _action: game_state)
+
+    controllers = {pid: _DeterministicController() for pid in range(1, 5)}
+    result = runner.play_until_terminal_with_result(
+        state,
+        controllers,
+        max_steps=100,
+        stuck_config=StuckGameConfig(no_vp_change_step_limit=999, no_progress_step_limit=8, low_impact_cycle_window=8),
+    )
+
+    assert result.termination_reason == "stalled"
+    assert result.stalled_debug_snapshot is not None
+
+
+def test_completed_game_sets_termination_reason_win() -> None:
+    config = TournamentConfig(
+        selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
+        fixed_lineup=(
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+        ),
+        format=TournamentFormat.FIXED_LINEUP_BATCH,
+        seed_blocks=1,
+        seat_rotation_enabled=False,
+    )
+    result = HeadlessTournamentRunner().run(config)
+    assert result.matches[0].termination_reason == "win"
+
+
+def test_tournament_summary_counts_include_stalled_and_max_step() -> None:
+    matches = (
+        MatchResult(
+            match_id="match_00001",
+            tournament_id="test",
+            lineup=(ControllerType.RANDOM_BOT.value,) * 4,
+            seat_order=(ControllerType.RANDOM_BOT.value,) * 4,
+            seed=1,
+            game_index_within_seed_block=0,
+            seat_rotation_block_id=0,
+            winner_bot_id=ControllerType.RANDOM_BOT.value,
+            winner_seat=1,
+            termination_reason="win",
+            match_duration_seconds=1.0,
+            turn_count=100,
+            full_turn_count=25,
+            seat_results=(_seat_result(), _seat_result(), _seat_result(), _seat_result()),
+            debug_snapshot=None,
+        ),
+        MatchResult(
+            match_id="match_00002",
+            tournament_id="test",
+            lineup=(ControllerType.RANDOM_BOT.value,) * 4,
+            seat_order=(ControllerType.RANDOM_BOT.value,) * 4,
+            seed=2,
+            game_index_within_seed_block=0,
+            seat_rotation_block_id=0,
+            winner_bot_id=None,
+            winner_seat=None,
+            termination_reason="stalled",
+            match_duration_seconds=1.0,
+            turn_count=3000,
+            full_turn_count=750,
+            seat_results=(_seat_result(), _seat_result(), _seat_result(), _seat_result()),
+            debug_snapshot={"phase": "MAIN"},
+        ),
+        MatchResult(
+            match_id="match_00003",
+            tournament_id="test",
+            lineup=(ControllerType.RANDOM_BOT.value,) * 4,
+            seat_order=(ControllerType.RANDOM_BOT.value,) * 4,
+            seed=3,
+            game_index_within_seed_block=0,
+            seat_rotation_block_id=0,
+            winner_bot_id=None,
+            winner_seat=None,
+            termination_reason="max_steps",
+            match_duration_seconds=1.0,
+            turn_count=100_000,
+            full_turn_count=25000,
+            seat_results=(_seat_result(), _seat_result(), _seat_result(), _seat_result()),
+            debug_snapshot={"phase": "MAIN"},
+        ),
+    )
+    summary = aggregate_results(matches)
+    tournament_result = HeadlessTournamentRunner().run(
+        TournamentConfig(
+            selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
+            fixed_lineup=(
+                ControllerType.RANDOM_BOT.value,
+                ControllerType.HEURISTIC_BOT.value,
+                ControllerType.RANDOM_BOT.value,
+                ControllerType.HEURISTIC_BOT.value,
+            ),
+            format=TournamentFormat.FIXED_LINEUP_BATCH,
+            seed_blocks=1,
+            seat_rotation_enabled=False,
+        )
+    )
+    synthetic = tournament_result.__class__(
+        config=tournament_result.config,
+        tournament_id="test",
+        matches=matches,
+        aggregates=summary,
+    )
+    assert synthetic.completed_games == 1
+    assert synthetic.stalled_games == 1
+    assert synthetic.max_step_games == 1
+    assert synthetic.average_turn_count_completed == 100.0
+
+
+class _DeterministicController:
+    def choose_action(self, _observation, legal_actions):
+        return legal_actions[0]
+
+
+def _seat_result() -> MatchSeatResult:
+    return MatchSeatResult(
+        bot_id=ControllerType.RANDOM_BOT.value,
+        vp_visible=0,
+        vp_total=0,
+        hidden_vp_count=0,
+        final_rank=1,
+        knights_played=0,
+        longest_road_length=0,
+        has_largest_army=False,
+        has_longest_road=False,
+        roads_built=0,
+        settlements_built=0,
+        cities_built=0,
+        dev_cards_bought=0,
+        dev_cards_played=0,
+        bank_trades_count=0,
+        player_trades_proposed=0,
+        player_trades_completed=0,
+        total_resources_earned=0,
+    )

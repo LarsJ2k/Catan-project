@@ -30,6 +30,7 @@ class TournamentFormat(str, Enum):
 class TournamentOutputOptions:
     write_json: bool = True
     write_csv: bool = True
+    write_stalled_games_debug: bool = False
     output_dir: str = "tournament_results"
     output_prefix: str = "tournament"
 
@@ -88,10 +89,12 @@ class MatchResult:
     seat_rotation_block_id: int
     winner_bot_id: str | None
     winner_seat: int | None
+    termination_reason: str
     match_duration_seconds: float
     turn_count: int
     full_turn_count: int
     seat_results: tuple[MatchSeatResult, MatchSeatResult, MatchSeatResult, MatchSeatResult]
+    debug_snapshot: dict[str, object] | None = None
 
     @property
     def winner(self) -> str | None:
@@ -159,6 +162,23 @@ class TournamentResult:
     tournament_id: str
     matches: tuple[MatchResult, ...]
     aggregates: dict[str, BotAggregate]
+
+    @property
+    def completed_games(self) -> int:
+        return sum(1 for match in self.matches if match.termination_reason == "win")
+
+    @property
+    def stalled_games(self) -> int:
+        return sum(1 for match in self.matches if match.termination_reason == "stalled")
+
+    @property
+    def max_step_games(self) -> int:
+        return sum(1 for match in self.matches if match.termination_reason == "max_steps")
+
+    @property
+    def average_turn_count_completed(self) -> float:
+        completed = [match.turn_count for match in self.matches if match.termination_reason == "win"]
+        return float(mean(completed)) if completed else 0.0
 
 
 
@@ -275,18 +295,21 @@ class HeadlessTournamentRunner:
             enable_v2_profiling=config.enable_v2_profiling,
         )
         started_at = perf_counter()
-        final_state, step_count, full_turn_count = self._game_runner.play_until_terminal_with_steps(
+        run_result = self._game_runner.play_until_terminal_with_result(
             state,
             controllers,
             max_steps=100_000,
         )
         match_duration_seconds = perf_counter() - started_at
+        final_state = run_result.final_state
+        step_count = run_result.steps
+        full_turn_count = run_result.full_turn_count
         seat_vps = tuple(_total_victory_points(final_state, idx + 1) for idx in range(4))
         ranks = _ranks_from_vps(seat_vps)
 
         winner_bot_id: str | None = None
-        winner_seat: int | None = final_state.winner
-        if final_state.winner is not None:
+        winner_seat: int | None = final_state.winner if run_result.termination_reason == "win" else None
+        if winner_seat is not None:
             winner_bot_id = match.seat_order[final_state.winner - 1]
 
         seat_results = tuple(
@@ -302,10 +325,12 @@ class HeadlessTournamentRunner:
             seat_rotation_block_id=match.seat_rotation_block_id,
             winner_bot_id=winner_bot_id,
             winner_seat=winner_seat,
+            termination_reason=run_result.termination_reason,
             match_duration_seconds=match_duration_seconds,
             turn_count=step_count,
             full_turn_count=full_turn_count,
             seat_results=seat_results,
+            debug_snapshot=run_result.stalled_debug_snapshot,
         )
 
 
@@ -361,7 +386,9 @@ def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[str, BotAggregat
     aggregates: dict[str, BotAggregate] = {}
     for bot, entries in by_bot.items():
         games = len(entries)
-        wins = sum(1 for match, _, _ in entries if match.winner_bot_id == bot)
+        completed_entries = [entry for entry in entries if entry[0].termination_reason == "win"]
+        completed_games = len(completed_entries)
+        wins = sum(1 for match, _, _ in completed_entries if match.winner_bot_id == bot)
         by_seat: dict[int, dict[str, float]] = {}
         for seat in range(4):
             seat_entries = [(m, sr) for m, seat_index, sr in entries if seat_index == seat]
@@ -369,22 +396,24 @@ def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[str, BotAggregat
             if seat_games == 0:
                 by_seat[seat + 1] = {"games": 0.0, "wins": 0.0, "win_rate": 0.0}
                 continue
-            seat_wins = sum(1 for match, _ in seat_entries if match.winner_bot_id == bot)
+            seat_completed_games = sum(1 for match, _ in seat_entries if match.termination_reason == "win")
+            seat_wins = sum(1 for match, _ in seat_entries if match.termination_reason == "win" and match.winner_bot_id == bot)
             by_seat[seat + 1] = {
                 "games": float(seat_games),
+                "completed_games": float(seat_completed_games),
                 "wins": float(seat_wins),
-                "win_rate": float(seat_wins / seat_games),
+                "win_rate": float(seat_wins / seat_completed_games) if seat_completed_games else 0.0,
             }
 
         aggregates[bot] = BotAggregate(
             bot_id=bot,
             games_played=games,
             wins=wins,
-            win_rate=(wins / games) if games else 0.0,
+            win_rate=(wins / completed_games) if completed_games else 0.0,
             average_final_vp_total=float(mean(seat.vp_total for _, _, seat in entries)) if games else 0.0,
             average_final_vp_visible=float(mean(seat.vp_visible for _, _, seat in entries)) if games else 0.0,
             average_rank=float(mean(seat.final_rank for _, _, seat in entries)) if games else 0.0,
-            average_turn_count=float(mean(match.turn_count for match, _, _ in entries)) if games else 0.0,
+            average_turn_count=float(mean(match.turn_count for match, _, _ in completed_entries)) if completed_games else 0.0,
             average_knights_played=float(mean(seat.knights_played for _, _, seat in entries)) if games else 0.0,
             average_longest_road_length=float(mean(seat.longest_road_length for _, _, seat in entries)) if games else 0.0,
             largest_army_claim_count=sum(1 for _, _, seat in entries if seat.has_largest_army),
@@ -410,12 +439,19 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
     if json_path is not None:
         payload = {
             "tournament_id": result.tournament_id,
+            "summary": {
+                "completed_games": result.completed_games,
+                "stalled_games": result.stalled_games,
+                "max_step_games": result.max_step_games,
+                "average_turn_count_completed": result.average_turn_count_completed,
+            },
             "config": {
                 "selected_bots": list(result.config.selected_bots),
                 "format": result.config.format.value,
                 "seed_blocks": result.config.seed_blocks,
                 "seat_rotation_enabled": result.config.seat_rotation_enabled,
                 "base_seed": result.config.base_seed,
+                "write_stalled_games_debug": result.config.output_options.write_stalled_games_debug,
             },
             "matches": [
                 {
@@ -428,9 +464,11 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                     "seat_rotation_block_id": match.seat_rotation_block_id,
                     "winner_bot_id": match.winner_bot_id,
                     "winner_seat": match.winner_seat,
+                    "termination_reason": match.termination_reason,
                     "match_duration_seconds": match.match_duration_seconds,
                     "turn_count": match.turn_count,
                     "full_turn_count": match.full_turn_count,
+                    "debug_snapshot": match.debug_snapshot,
                     "seat_results": [
                         {
                             "seat": seat_idx,
@@ -482,6 +520,21 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
         }
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
+        if opts.write_stalled_games_debug:
+            stalled_debug_path = out_dir / f"{stem}_stalled_games_debug.json"
+            stalled_payload = [
+                {
+                    "match_id": match.match_id,
+                    "termination_reason": match.termination_reason,
+                    "seed": match.seed,
+                    "seat_order": list(match.seat_order),
+                    "debug_snapshot": match.debug_snapshot,
+                }
+                for match in result.matches
+                if match.termination_reason in {"stalled", "max_steps"}
+            ]
+            stalled_debug_path.write_text(json.dumps(stalled_payload, indent=2), encoding="utf-8")
+
     if match_excel_path is not None:
         _write_single_sheet_xlsx(
             match_excel_path,
@@ -512,6 +565,7 @@ def _match_csv_headers() -> list[str]:
         "seat_rotation_block_id",
         "winner_bot_id",
         "winner_seat",
+        "termination_reason",
         "match_duration_seconds",
         "turn_count",
         "full_turn_count",
@@ -554,6 +608,7 @@ def _match_csv_row(match: MatchResult) -> list[str | int | bool]:
         match.seat_rotation_block_id,
         "" if match.winner_bot_id is None else match.winner_bot_id,
         "" if match.winner_seat is None else match.winner_seat,
+        match.termination_reason,
         match.match_duration_seconds,
         match.turn_count,
         match.full_turn_count,
