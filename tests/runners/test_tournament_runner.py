@@ -25,6 +25,7 @@ def test_tournament_setup_state_builds_config() -> None:
         seed_blocks_text="3",
         base_seed_text="10",
         seat_rotation_enabled=True,
+        enable_v2_profiling=True,
     )
 
     config = state.to_tournament_config()
@@ -32,6 +33,7 @@ def test_tournament_setup_state_builds_config() -> None:
     assert config is not None
     assert config.seed_blocks == 3
     assert config.base_seed == 10
+    assert config.enable_v2_profiling is True
     assert config.fixed_lineup == (
         ControllerType.RANDOM_BOT.value,
         ControllerType.HEURISTIC_BOT.value,
@@ -164,6 +166,29 @@ def test_tournament_progress_callback_receives_match_progress_updates() -> None:
     HeadlessTournamentRunner().run(config, progress_callback=lambda complete, total: updates.append((complete, total)))
 
     assert updates == [(0, 1), (1, 1)]
+
+
+def test_headless_tournament_runner_writes_v2_profile_summary_when_enabled(tmp_path: Path) -> None:
+    config = TournamentConfig(
+        selected_bots=(ControllerType.HEURISTIC_V2_POSITIONAL.value, ControllerType.RANDOM_BOT.value),
+        fixed_lineup=(
+            ControllerType.HEURISTIC_V2_POSITIONAL.value,
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_V2_POSITIONAL.value,
+            ControllerType.RANDOM_BOT.value,
+        ),
+        format=TournamentFormat.FIXED_LINEUP_BATCH,
+        seed_blocks=1,
+        seat_rotation_enabled=False,
+        output_options=TournamentOutputOptions(write_json=False, write_csv=False, output_dir=str(tmp_path), output_prefix="profile_test"),
+        enable_v2_profiling=True,
+    )
+
+    result = HeadlessTournamentRunner().run(config)
+
+    profile_path = tmp_path / f"{result.tournament_id}_v2_profile.json"
+    assert profile_path.exists()
+    assert "\"decisions\"" in profile_path.read_text(encoding="utf-8")
 
 
 def test_aggregation_correctness() -> None:

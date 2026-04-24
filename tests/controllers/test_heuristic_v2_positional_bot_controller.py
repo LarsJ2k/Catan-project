@@ -4,6 +4,7 @@ import copy
 
 from catan.controllers.heuristic_params import HeuristicScoringParams, default_family_parameters
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
+from catan.controllers.heuristic_v2_profiling import GLOBAL_V2_PROFILING_STATS
 from catan.controllers.heuristic_v2_position_evaluator import HeuristicV2PositionEvaluator
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state
@@ -140,3 +141,34 @@ def test_position_evaluator_rewards_vp_and_production_and_penalties() -> None:
     for edge_id in range(10):
         overbuilt.placed.roads[edge_id] = 1
     assert evaluator.evaluate(overbuilt, 1, punitive_params).total_score < evaluator.evaluate(high_prod, 1, punitive_params).total_score
+
+
+def test_v2_profiling_can_be_enabled_or_disabled() -> None:
+    state = _state(150)
+    legal = [BuildRoad(player_id=1, edge_id=0), EndTurn(player_id=1)]
+    GLOBAL_V2_PROFILING_STATS.reset()
+
+    disabled_bot = HeuristicV2PositionalBotController(seed=3, enable_delay=False, enable_v2_profiling=False)
+    _ = disabled_bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    assert GLOBAL_V2_PROFILING_STATS.decision_count == 0
+
+    enabled_bot = HeuristicV2PositionalBotController(seed=3, enable_delay=False, enable_v2_profiling=True)
+    _ = enabled_bot.choose_action(observation=DebugObservation(state=state), legal_actions=legal)
+    assert GLOBAL_V2_PROFILING_STATS.decision_count == 1
+
+    summary = GLOBAL_V2_PROFILING_STATS.summary()
+    assert summary["decisions"] == 1
+    assert summary["avg_decision_ms"] >= 0.0
+    assert "state_copy" in summary["avg_time_by_category_ms"]
+
+
+def test_v2_profiling_does_not_change_selected_action() -> None:
+    state = _state(151)
+    legal = [BuildRoad(player_id=1, edge_id=0), EndTurn(player_id=1)]
+
+    unprofiled = HeuristicV2PositionalBotController(seed=22, enable_delay=False, enable_v2_profiling=False)
+    profiled = HeuristicV2PositionalBotController(seed=22, enable_delay=False, enable_v2_profiling=True)
+
+    assert unprofiled.choose_action(DebugObservation(state=state), legal) == profiled.choose_action(
+        DebugObservation(state=state), legal
+    )

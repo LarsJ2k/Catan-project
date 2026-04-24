@@ -50,6 +50,7 @@ class GameLaunchConfig:
     player_slots: tuple[PlayerSlotConfig, ...]
     seed: int
     bot_delay_seconds: float = 1.2
+    enable_v2_profiling: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,6 +200,7 @@ class TournamentSetupState:
     seat_rotation_enabled: bool = True
     export_json: bool = True
     export_csv: bool = True
+    enable_v2_profiling: bool = False
 
     def toggle_bot(self, controller_type: str) -> TournamentSetupState:
         if controller_type == ControllerType.HUMAN.value:
@@ -213,6 +215,7 @@ class TournamentSetupState:
                 seat_rotation_enabled=self.seat_rotation_enabled,
                 export_json=self.export_json,
                 export_csv=self.export_csv,
+                enable_v2_profiling=self.enable_v2_profiling,
             )
         return TournamentSetupState(
             selected_bots=self.selected_bots + (controller_type,),
@@ -223,6 +226,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def with_format(self, format_value: str) -> TournamentSetupState:
@@ -235,6 +239,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def with_seed_blocks_text(self, value: str) -> TournamentSetupState:
@@ -247,6 +252,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def with_base_seed_text(self, value: str) -> TournamentSetupState:
@@ -259,6 +265,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def with_seat_rotation_enabled(self, enabled: bool) -> TournamentSetupState:
@@ -271,6 +278,7 @@ class TournamentSetupState:
             seat_rotation_enabled=enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def with_export_json(self, enabled: bool) -> TournamentSetupState:
@@ -283,6 +291,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=enabled,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def with_export_csv(self, enabled: bool) -> TournamentSetupState:
@@ -295,6 +304,20 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=enabled,
+            enable_v2_profiling=self.enable_v2_profiling,
+        )
+
+    def with_v2_profiling_enabled(self, enabled: bool) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            base_seed_text=self.base_seed_text,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+            enable_v2_profiling=enabled,
         )
 
     def with_selected_bot(self, controller_type: str | None) -> TournamentSetupState:
@@ -307,6 +330,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def add_selected_bot(self) -> TournamentSetupState:
@@ -325,6 +349,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def remove_selected_bot_at(self, slot_index: int) -> TournamentSetupState:
@@ -341,6 +366,7 @@ class TournamentSetupState:
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
+            enable_v2_profiling=self.enable_v2_profiling,
         )
 
     def to_tournament_config(self):
@@ -370,4 +396,5 @@ class TournamentSetupState:
             base_seed=base_seed,
             fixed_lineup=fixed_lineup,
             output_options=TournamentOutputOptions(write_json=self.export_json, write_csv=self.export_csv),
+            enable_v2_profiling=self.enable_v2_profiling,
         )

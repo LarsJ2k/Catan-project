@@ -302,6 +302,7 @@ def build_bot_controller_from_definition(
     enable_bot_delay: bool,
     seed: int | None = None,
     delay_seconds: float = 1.2,
+    enable_v2_profiling: bool = False,
     storage_path: Path | None = None,
 ) -> Controller:
     definition = get_bot_definition(bot_id, storage_path=storage_path)
@@ -344,5 +345,6 @@ def build_bot_controller_from_definition(
             delay_seconds=delay_seconds,
             enable_delay=enable_bot_delay,
             heuristic_params=HeuristicScoringParams.from_mapping(parameters),
+            enable_v2_profiling=enable_v2_profiling,
         )
     raise ValueError(f"Unsupported bot base type: {definition.base_controller_type}")

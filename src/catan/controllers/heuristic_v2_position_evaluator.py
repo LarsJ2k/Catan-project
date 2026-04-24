@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 
 from catan.controllers.heuristic_v1_baseline_bot_controller import _TOKEN_PIP_SCORES, _TERRAIN_TO_RESOURCE
 from catan.controllers.heuristic_params import HeuristicScoringParams
@@ -12,17 +13,22 @@ from catan.core.models.state import GameState
 class PositionEvaluation:
     total_score: float
     components: dict[str, float]
+    timings: dict[str, float]
 
 
 class HeuristicV2PositionEvaluator:
     def evaluate(self, state: GameState, player_id: int, params: HeuristicScoringParams) -> PositionEvaluation:
+        timings: dict[str, float] = {}
+        t0 = perf_counter()
         player = state.players[player_id]
         total_vp = player.victory_points
         if state.longest_road_holder == player_id:
             total_vp += 2
         if state.largest_army_holder == player_id:
             total_vp += 2
+        timings["vp"] = perf_counter() - t0
 
+        t0 = perf_counter()
         production_by_resource: dict[ResourceType, float] = {resource: 0.0 for resource in ResourceType}
         city_targets = 0.0
         blocked_pips = 0.0
@@ -54,7 +60,9 @@ class HeuristicV2PositionEvaluator:
                     blocked_pips += pip * 2
                     continue
                 production_by_resource[resource] += pip * 2
+        timings["production"] = perf_counter() - t0
 
+        t0 = perf_counter()
         production_score = sum(production_by_resource.values())
 
         expansion_profile = {ResourceType.LUMBER, ResourceType.BRICK, ResourceType.GRAIN, ResourceType.WOOL}
@@ -64,14 +72,21 @@ class HeuristicV2PositionEvaluator:
             + self._profile_score(production_by_resource, city_dev_profile)
             + len({resource for resource, amount in production_by_resource.items() if amount > 0})
         )
+        timings["resource_balance"] = perf_counter() - t0
 
+        t0 = perf_counter()
         expansion_potential = self._expansion_potential(state, player_id)
+        timings["expansion"] = perf_counter() - t0
+
+        t0 = perf_counter()
         road_potential = float(player.longest_road_length)
         if state.longest_road_holder == player_id:
             road_potential += 2.0
         elif state.longest_road_holder is None:
             road_potential += min(2.0, player.longest_road_length / 2.0)
+        timings["road_potential"] = perf_counter() - t0
 
+        t0 = perf_counter()
         dev_potential = (
             production_by_resource[ResourceType.ORE]
             + production_by_resource[ResourceType.GRAIN]
@@ -79,17 +94,24 @@ class HeuristicV2PositionEvaluator:
             + (player.knights_played * 1.5)
             + sum(player.dev_cards.values())
         )
+        timings["dev_potential"] = perf_counter() - t0
 
+        t0 = perf_counter()
         port_value = self._port_value(state, player_id, production_by_resource)
+        timings["port_value"] = perf_counter() - t0
 
+        t0 = perf_counter()
         hand_total = sum(player.resources.values())
         hand_resource_score = hand_total + self._close_to_cost_bonus(player.resources)
+        timings["hand_resources"] = perf_counter() - t0
 
+        t0 = perf_counter()
         road_count = sum(1 for owner in state.placed.roads.values() if owner == player_id)
         settlement_like_count = sum(1 for owner in state.placed.settlements.values() if owner == player_id) + sum(
             1 for owner in state.placed.cities.values() if owner == player_id
         )
         road_overbuild = max(0.0, road_count - (settlement_like_count * 3))
+        timings["penalties"] = perf_counter() - t0
 
         components = {
             "vp": total_vp * params.vp_weight,
@@ -110,7 +132,7 @@ class HeuristicV2PositionEvaluator:
                 else 0.0
             ),
         }
-        return PositionEvaluation(total_score=sum(components.values()), components=components)
+        return PositionEvaluation(total_score=sum(components.values()), components=components, timings=timings)
 
     def _profile_score(self, production: dict[ResourceType, float], profile: set[ResourceType]) -> float:
         present = sum(1 for resource in profile if production.get(resource, 0.0) > 0)
