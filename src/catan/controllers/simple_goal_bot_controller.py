@@ -44,7 +44,7 @@ DEFAULT_BOT_ACTION_DELAY_SECONDS = 1.2
 
 
 class SimpleGoalBotController(HeuristicV1BaselineBotController):
-    """Simple deterministic goal bot: City -> Settlement -> Road -> Dev -> EndTurn."""
+    """Simple deterministic goal bot: City -> Settlement -> trade -> Dev/Road fallback."""
 
     def __init__(
         self,
@@ -108,39 +108,31 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
         if monopoly is not None:
             return _choose(monopoly)
 
-        if settlement_locations_available:
-            settlement_actions = [a for a in legal_actions if isinstance(a, BuildSettlement)]
-            if settlement_actions:
-                return _choose(self._best_settlement_action(state, settlement_actions))
-            settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
-            if settlement_trade is not None:
-                return _choose(settlement_trade)
-            city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]
-            if city_actions:
-                return _choose(self._best_city_action(state, city_actions))
-            return _choose(next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions))))
-
         city_actions = [a for a in legal_actions if isinstance(a, BuildCity)]
         if city_actions:
             return _choose(self._best_city_action(state, city_actions))
-        city_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _CITY_COST)
-        if city_trade is not None:
-            return _choose(city_trade)
 
         settlement_actions = [a for a in legal_actions if isinstance(a, BuildSettlement)]
         if settlement_actions:
             return _choose(self._best_settlement_action(state, settlement_actions))
-        settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
-        if settlement_trade is not None:
-            return _choose(settlement_trade)
 
-        road_action = self._road_toward_future_settlement(state, legal_actions)
-        if road_action is not None:
-            return _choose(road_action)
+        city_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _CITY_COST)
+        if city_trade is not None:
+            return _choose(city_trade)
+
+        if settlement_locations_available:
+            settlement_trade = self._trade_for_goal_if_almost_possible(state, legal_actions, _SETTLEMENT_COST)
+            if settlement_trade is not None:
+                return _choose(settlement_trade)
 
         dev_action = next((a for a in legal_actions if isinstance(a, BuyDevelopmentCard)), None)
-        if dev_action is not None and self._should_buy_dev_card(state):
+        if dev_action is not None and self._should_buy_dev_card(state, settlement_locations_available):
             return _choose(dev_action)
+
+        if not settlement_locations_available:
+            road_action = self._road_toward_future_settlement(state, legal_actions)
+            if road_action is not None:
+                return _choose(road_action)
 
         return _choose(next((a for a in legal_actions if isinstance(a, EndTurn)), self._pick_tie(list(legal_actions))))
 
@@ -518,22 +510,16 @@ class SimpleGoalBotController(HeuristicV1BaselineBotController):
             max(self._node_resource_diversity(state, node_a), self._node_resource_diversity(state, node_b)),
         )
 
-    def _should_buy_dev_card(self, state: GameState) -> bool:
+    def _should_buy_dev_card(self, state: GameState, settlement_locations_available: bool) -> bool:
         player = state.players[state.turn.current_player] if state.turn is not None else None
         if player is None:
             return False
         hand = dict(player.resources)
-        if self._can_afford(hand, _CITY_COST) or self._can_afford(hand, _SETTLEMENT_COST):
+        if not self._can_afford(hand, _DEV_COST):
             return False
-        if self._missing_resources(hand, _CITY_COST) == 1 or self._missing_resources(hand, _SETTLEMENT_COST) == 1:
-            if not self._can_afford(hand, _DEV_COST):
-                return False
-            after_dev_buy = dict(hand)
-            for resource, amount in _DEV_COST.items():
-                after_dev_buy[resource] = after_dev_buy.get(resource, 0) - amount
-            if self._missing_resources(after_dev_buy, _CITY_COST) != 1 and self._missing_resources(after_dev_buy, _SETTLEMENT_COST) != 1:
-                return False
-        return self._can_afford(hand, _DEV_COST) or self._is_stalled(state)
+        if settlement_locations_available and not self._is_stalled(state):
+            return False
+        return True
 
     def _choose_trade_response(self, state: GameState, legal_actions: Sequence[Action]) -> Action:
         accept = next((a for a in legal_actions if isinstance(a, RespondToTradeInterested)), None)

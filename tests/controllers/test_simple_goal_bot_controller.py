@@ -35,7 +35,7 @@ def _main_turn_state(seed: int = 5):
     return state
 
 
-def test_settlement_priority_over_city_when_location_exists() -> None:
+def test_city_priority_over_settlement_when_both_are_directly_buildable() -> None:
     state = _main_turn_state(13)
     bot = SimpleGoalBotController(seed=1, enable_delay=False)
 
@@ -48,7 +48,7 @@ def test_settlement_priority_over_city_when_location_exists() -> None:
         ],
     )
 
-    assert isinstance(chosen, BuildSettlement)
+    assert isinstance(chosen, BuildCity)
 
 
 def test_records_last_decision_for_spectator_ui() -> None:
@@ -329,7 +329,7 @@ def test_trade_acceptance_only_for_city_or_settlement_enable() -> None:
     assert isinstance(reject, RespondToTradePass)
 
 
-def test_dev_buy_allowed_when_still_one_away_after_purchase() -> None:
+def test_dev_buy_when_affordable_and_no_direct_city_or_settlement() -> None:
     state = _main_turn_state(52)
     state.players[1].resources = {
         ResourceType.BRICK: 0,
@@ -348,20 +348,121 @@ def test_dev_buy_allowed_when_still_one_away_after_purchase() -> None:
     assert isinstance(chosen, BuyDevelopmentCard)
 
 
-def test_dev_buy_blocked_when_purchase_breaks_one_away_state() -> None:
+def test_dev_buy_blocked_when_city_directly_buildable() -> None:
     state = _main_turn_state(53)
     state.players[1].resources = {
         ResourceType.BRICK: 0,
-        ResourceType.LUMBER: 1,
-        ResourceType.WOOL: 1,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 0,
         ResourceType.GRAIN: 2,
-        ResourceType.ORE: 1,
+        ResourceType.ORE: 3,
     }
     bot = SimpleGoalBotController(seed=13, enable_delay=False)
 
     chosen = bot.choose_action(
         DebugObservation(state=state),
+        [BuildCity(player_id=1, node_id=1), BuyDevelopmentCard(player_id=1), EndTurn(player_id=1)],
+    )
+
+    assert isinstance(chosen, BuildCity)
+
+
+def test_dev_buy_blocked_when_settlement_directly_buildable() -> None:
+    state = _main_turn_state(54)
+    state.players[1].resources = {
+        ResourceType.BRICK: 1,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 0,
+    }
+    bot = SimpleGoalBotController(seed=15, enable_delay=False)
+
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [BuildSettlement(player_id=1, node_id=4), BuyDevelopmentCard(player_id=1), EndTurn(player_id=1)],
+    )
+
+    assert isinstance(chosen, BuildSettlement)
+
+
+def test_prefers_trade_for_settlement_when_location_exists_and_one_short() -> None:
+    state = _main_turn_state(55)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 2,
+    }
+    state.players[2].resources[ResourceType.BRICK] = 1
+    bot = SimpleGoalBotController(seed=16, enable_delay=False)
+    state.placed.settlements[0] = 1
+    path: tuple[int, int] | None = None
+    for first_edge in state.board.node_to_adjacent_edges[0]:
+        first_a, first_b = state.board.edge_to_adjacent_nodes[first_edge]
+        first_neighbor = first_b if first_a == 0 else first_a
+        for second_edge in state.board.node_to_adjacent_edges[first_neighbor]:
+            if second_edge == first_edge:
+                continue
+            state.placed.roads = {first_edge: 1, second_edge: 1}
+            if bot._has_immediate_settlement_location(state, [EndTurn(player_id=1)]):
+                path = (first_edge, second_edge)
+                break
+        if path is not None:
+            break
+    assert path is not None
+
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
         [BuyDevelopmentCard(player_id=1), EndTurn(player_id=1)],
+    )
+
+    assert isinstance(chosen, ProposePlayerTrade)
+
+
+def test_dev_buy_before_road_when_no_settlement_location_available() -> None:
+    state = _main_turn_state(56)
+    state.placed.settlements[0] = 1
+    state.players[1].resources = {
+        ResourceType.BRICK: 1,
+        ResourceType.LUMBER: 1,
+        ResourceType.WOOL: 1,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 1,
+    }
+    bot = SimpleGoalBotController(seed=17, enable_delay=False)
+    road = next(BuildRoad(player_id=1, edge_id=edge.id) for edge in state.board.edges if bot._road_progress_tuple(state, edge.id)[0] > 0)
+
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [road, BuyDevelopmentCard(player_id=1), EndTurn(player_id=1)],
+    )
+
+    assert isinstance(chosen, BuyDevelopmentCard)
+
+
+def test_does_not_trade_to_enable_development_card_purchase() -> None:
+    state = _main_turn_state(57)
+    state.players[1].resources = {
+        ResourceType.BRICK: 0,
+        ResourceType.LUMBER: 0,
+        ResourceType.WOOL: 0,
+        ResourceType.GRAIN: 1,
+        ResourceType.ORE: 1,
+    }
+    bot = SimpleGoalBotController(seed=18, enable_delay=False)
+
+    trade_for_wool = BankTrade(
+        player_id=1,
+        offer_resource=ResourceType.BRICK,
+        request_resource=ResourceType.WOOL,
+        trade_rate=4,
+        via_port_resource=None,
+    )
+    chosen = bot.choose_action(
+        DebugObservation(state=state),
+        [trade_for_wool, EndTurn(player_id=1)],
     )
 
     assert isinstance(chosen, EndTurn)
