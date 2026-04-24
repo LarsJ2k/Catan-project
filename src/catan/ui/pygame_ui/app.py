@@ -975,12 +975,20 @@ class PygameApp:
                         small_font.render(f"Seed Blocks: {tournament_state.seed_blocks_text}", True, (220, 220, 235)),
                         (112, height - 138),
                     )
-                    start_color = (70, 120, 70) if tournament_state.to_tournament_config() is not None else (80, 80, 80)
+                    tournament_config = tournament_state.to_tournament_config()
+                    preview_match_count = tournament_state.preview_match_count()
+                    preview_text = (
+                        f"Preview: {preview_match_count} matches will run"
+                        if preview_match_count is not None
+                        else "Preview unavailable (check bot count / seed values)."
+                    )
+                    screen.blit(small_font.render(preview_text, True, (188, 215, 236)), (60, height - 110))
+                    start_color = (70, 120, 70) if tournament_config is not None else (80, 80, 80)
                     self.pg.draw.rect(screen, (90, 90, 90), back_rect)
                     self.pg.draw.rect(screen, start_color, start_rect)
                     screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_rect.x + 55, back_rect.y + 10))
                     screen.blit(small_font.render("Run Tournament", True, (255, 255, 255)), (start_rect.x + 20, start_rect.y + 10))
-                    if tournament_state.to_tournament_config() is None:
+                    if tournament_config is None:
                         help_text = (
                             "Fixed lineup needs at least 1 bot. Round robin needs at least 4 bots."
                             if tournament_state.format == TournamentFormat.ROUND_ROBIN.value

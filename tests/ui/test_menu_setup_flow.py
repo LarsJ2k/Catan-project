@@ -207,3 +207,39 @@ def test_tournament_setup_can_toggle_stalled_games_debug_export() -> None:
     config = state.with_export_stalled_games_debug(True).to_tournament_config()
     assert config is not None
     assert config.output_options.write_stalled_games_debug is True
+
+
+def test_tournament_setup_preview_match_count_for_fixed_lineup_with_seat_rotation() -> None:
+    state = TournamentSetupState(
+        selected_bots=(ControllerType.RANDOM_BOT.value, ControllerType.HEURISTIC_BOT.value),
+        format=TournamentFormat.FIXED_LINEUP_BATCH.value,
+        seed_blocks_text="3",
+    )
+
+    assert state.preview_match_count() == 12
+
+
+def test_tournament_setup_preview_match_count_for_round_robin_without_seat_rotation() -> None:
+    state = TournamentSetupState(
+        selected_bots=(
+            ControllerType.RANDOM_BOT.value,
+            ControllerType.HEURISTIC_BOT.value,
+            ControllerType.SIMPLE_GOAL_BOT.value,
+            ControllerType.HEURISTIC_V1_BASELINE.value,
+            ControllerType.HEURISTIC_V1_1.value,
+        ),
+        format=TournamentFormat.ROUND_ROBIN.value,
+        seed_blocks_text="2",
+        seat_rotation_enabled=False,
+    )
+
+    assert state.preview_match_count() == 10
+
+
+def test_tournament_setup_preview_match_count_returns_none_for_invalid_settings() -> None:
+    state = TournamentSetupState(
+        selected_bots=(),
+        format=TournamentFormat.ROUND_ROBIN.value,
+    )
+
+    assert state.preview_match_count() is None

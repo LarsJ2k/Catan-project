@@ -398,6 +398,16 @@ class TournamentSetupState:
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
+    def preview_match_count(self) -> int | None:
+        from catan.runners.tournament import generate_lineups
+
+        config = self.to_tournament_config()
+        if config is None:
+            return None
+        lineup_count = len(generate_lineups(config))
+        matches_per_lineup = 4 if config.seat_rotation_enabled else 1
+        return lineup_count * config.seed_blocks * matches_per_lineup
+
     def to_tournament_config(self):
         from catan.runners.tournament import TournamentConfig, TournamentFormat, TournamentOutputOptions
 
