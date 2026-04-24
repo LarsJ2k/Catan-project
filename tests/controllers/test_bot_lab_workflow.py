@@ -58,6 +58,7 @@ def test_setup_and_tournament_see_saved_custom_bots(tmp_path, monkeypatch) -> No
     builtin_ids = {
         ControllerType.HUMAN.value,
         "random_bot",
+        "simple_goal_bot",
         "heuristic_bot",
         "heuristic_v1_baseline",
         "heuristic_v1_fixed",

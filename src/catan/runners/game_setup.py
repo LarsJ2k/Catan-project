@@ -16,6 +16,7 @@ class AppScreen(str, Enum):
 class ControllerType(str, Enum):
     HUMAN = "human"
     RANDOM_BOT = "random_bot"
+    SIMPLE_GOAL_BOT = "simple_goal_bot"
     HEURISTIC_BOT = "heuristic_bot"
     HEURISTIC_V1_BASELINE = "heuristic_v1_baseline"
     HEURISTIC_V1_FIXED = "heuristic_v1_fixed"

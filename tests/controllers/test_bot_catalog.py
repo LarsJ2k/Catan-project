@@ -9,6 +9,7 @@ from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotCont
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
 from catan.controllers.random_bot_controller import RandomBotController
+from catan.controllers.simple_goal_bot_controller import SimpleGoalBotController
 from catan.runners.game_setup import ControllerType
 
 
@@ -17,6 +18,7 @@ def test_bot_catalog_contains_random_and_heuristic_bots() -> None:
     types = {spec.controller_type for spec in specs}
 
     assert ControllerType.RANDOM_BOT in types
+    assert ControllerType.SIMPLE_GOAL_BOT in types
     assert ControllerType.HEURISTIC_BOT in types
     assert ControllerType.HEURISTIC_V1_BASELINE in types
     assert ControllerType.HEURISTIC_V1_FIXED in types
@@ -27,12 +29,14 @@ def test_bot_catalog_contains_random_and_heuristic_bots() -> None:
 def test_bot_catalog_builds_expected_controllers() -> None:
     random_bot = build_bot_controller(ControllerType.RANDOM_BOT, enable_bot_delay=False)
     heuristic_bot = build_bot_controller(ControllerType.HEURISTIC_BOT, enable_bot_delay=False)
+    simple_goal_bot = build_bot_controller(ControllerType.SIMPLE_GOAL_BOT, enable_bot_delay=False)
     heuristic_v1 = build_bot_controller(ControllerType.HEURISTIC_V1_BASELINE, enable_bot_delay=False)
     heuristic_v1_1 = build_bot_controller(ControllerType.HEURISTIC_V1_1, enable_bot_delay=False)
     heuristic_v2 = build_bot_controller(ControllerType.HEURISTIC_V2_POSITIONAL, enable_bot_delay=False)
 
     assert isinstance(random_bot, RandomBotController)
     assert isinstance(heuristic_bot, HeuristicBotController)
+    assert isinstance(simple_goal_bot, SimpleGoalBotController)
     assert isinstance(heuristic_v1, HeuristicV1BaselineBotController)
     assert isinstance(heuristic_v1_1, HeuristicV1_1BotController)
     assert isinstance(heuristic_v2, HeuristicV2PositionalBotController)

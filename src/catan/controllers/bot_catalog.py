@@ -9,6 +9,7 @@ from typing import Callable, Mapping
 from catan.controllers.base import Controller
 from catan.controllers.heuristic_params import HeuristicScoringParams, default_family_parameters, merge_with_family_defaults
 from catan.controllers.random_bot_controller import RandomBotController
+from catan.controllers.simple_goal_bot_controller import SimpleGoalBotController
 from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
@@ -43,6 +44,10 @@ def _heuristic_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicBotController(enable_delay=enable_bot_delay)
 
 
+def _simple_goal_factory(enable_bot_delay: bool) -> Controller:
+    return SimpleGoalBotController(enable_delay=enable_bot_delay)
+
+
 def _heuristic_v1_baseline_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicV1BaselineBotController(enable_delay=enable_bot_delay)
 
@@ -65,6 +70,12 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
         label="Random Bot",
         is_bot=True,
         factory=_random_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.SIMPLE_GOAL_BOT,
+        label="Simple Goal Bot",
+        is_bot=True,
+        factory=_simple_goal_factory,
     ),
     ControllerSpec(
         controller_type=ControllerType.HEURISTIC_BOT,
@@ -117,6 +128,14 @@ _BUILTIN_BOTS: tuple[BotDefinition, ...] = (
         base_controller_type=ControllerType.HEURISTIC_BOT,
         description="Greedy bot that scores legal actions.",
         parameters=default_family_parameters(ControllerType.HEURISTIC_BOT),
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="simple_goal_bot",
+        display_name="Simple Goal Bot",
+        base_controller_type=ControllerType.SIMPLE_GOAL_BOT,
+        description="Rule-based City > Settlement > Road progression bot with constrained trades.",
+        parameters={},
         is_builtin=True,
     ),
     BotDefinition(
@@ -319,6 +338,12 @@ def build_bot_controller_from_bot_definition(
             delay_seconds=delay_seconds,
             enable_delay=enable_bot_delay,
             heuristic_params=HeuristicScoringParams.from_mapping(parameters),
+        )
+    if definition.base_controller_type == ControllerType.SIMPLE_GOAL_BOT:
+        return SimpleGoalBotController(
+            seed=seed,
+            delay_seconds=delay_seconds,
+            enable_delay=enable_bot_delay,
         )
     if definition.base_controller_type == ControllerType.HEURISTIC_V1_BASELINE:
         return HeuristicV1BaselineBotController(

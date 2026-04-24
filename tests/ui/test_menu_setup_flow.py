@@ -9,6 +9,7 @@ from catan.controllers.human_controller import HumanController
 from catan.runners.game_setup import AppScreen, ControllerType, GameSetupState, TournamentSetupState, available_controller_types
 from catan.runners.tournament import TournamentFormat
 from catan.runners.launcher import create_controllers
+from catan.controllers.simple_goal_bot_controller import SimpleGoalBotController
 
 
 def test_menu_setup_state_transitions() -> None:
@@ -116,11 +117,24 @@ def test_available_controller_types_keep_human_first() -> None:
     controller_types = available_controller_types()
     assert controller_types[0] == ControllerType.HUMAN.value
     assert ControllerType.RANDOM_BOT.value in controller_types
+    assert ControllerType.SIMPLE_GOAL_BOT.value in controller_types
     assert ControllerType.HEURISTIC_BOT.value in controller_types
     assert ControllerType.HEURISTIC_V1_BASELINE.value in controller_types
     assert ControllerType.HEURISTIC_V1_FIXED.value in controller_types
     assert ControllerType.HEURISTIC_V1_1.value in controller_types
     assert ControllerType.HEURISTIC_V2_POSITIONAL.value in controller_types
+
+
+def test_launch_config_can_create_simple_goal_bot_controller() -> None:
+    state = GameSetupState().go_to_setup()
+    state = state.with_selected_controller(ControllerType.SIMPLE_GOAL_BOT.value).add_selected_player()
+    state = state.with_selected_controller(ControllerType.HUMAN.value).add_selected_player()
+
+    config = state.to_launch_config()
+    assert config is not None
+
+    controllers = create_controllers(config)
+    assert isinstance(controllers[1], SimpleGoalBotController)
 
 
 def test_launch_config_can_create_new_v1_baseline_bot_controller() -> None:
