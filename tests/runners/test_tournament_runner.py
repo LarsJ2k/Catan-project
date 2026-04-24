@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from xml.etree import ElementTree
@@ -333,7 +334,11 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert json_path is not None and json_path.exists()
     assert excel_path is not None and excel_path.exists()
     summary_excel = tmp_path / "test_fixed_lineup_batch_1_1_1_tournament_summary.xlsx"
+    match_csv = tmp_path / "test_fixed_lineup_batch_1_1_1_match_results.csv"
+    summary_csv = tmp_path / "test_fixed_lineup_batch_1_1_1_tournament_summary.csv"
     assert summary_excel.exists()
+    assert match_csv.exists()
+    assert summary_csv.exists()
 
     match_rows = _read_xlsx_rows(excel_path)
     summary_rows = _read_xlsx_rows(summary_excel)
@@ -348,6 +353,12 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert "seat1_total_resources_earned" in match_rows[0]
     assert "seat1_total_resources_in_hand" not in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
+    match_csv_rows = _read_csv_rows(match_csv)
+    summary_csv_rows = _read_csv_rows(summary_csv)
+    assert len(match_csv_rows) - 1 == len(result.matches)
+    assert len(summary_csv_rows) - 1 == len(result.aggregates)
+    assert "match_id" in match_csv_rows[0]
+    assert "average_final_vp_total" in summary_csv_rows[0]
     payload = json_path.read_text(encoding="utf-8")
     assert "\"completed_games\"" in payload
     assert "\"stalled_games\"" in payload
@@ -394,6 +405,11 @@ def _read_xlsx_rows(path: Path) -> list[list[str]]:
                 values.append("")
         rows.append(values)
     return rows
+
+
+def _read_csv_rows(path: Path) -> list[list[str]]:
+    with path.open("r", encoding="utf-8", newline="") as csv_file:
+        return list(csv.reader(csv_file))
 
 
 def test_tournament_runner_disables_bot_delay(monkeypatch) -> None:

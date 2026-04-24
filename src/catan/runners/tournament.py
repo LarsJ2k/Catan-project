@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from enum import Enum
 from itertools import combinations
@@ -435,6 +436,8 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
     json_path = out_dir / f"{stem}.json" if opts.write_json else None
     match_excel_path = out_dir / f"{stem}_match_results.xlsx" if opts.write_csv else None
     summary_excel_path = out_dir / f"{stem}_tournament_summary.xlsx" if opts.write_csv else None
+    match_csv_path = out_dir / f"{stem}_match_results.csv" if opts.write_csv else None
+    summary_csv_path = out_dir / f"{stem}_tournament_summary.csv" if opts.write_csv else None
 
     if json_path is not None:
         payload = {
@@ -547,6 +550,20 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
         _write_single_sheet_xlsx(
             summary_excel_path,
             "tournament_summary",
+            _summary_csv_headers(),
+            (_summary_csv_row(result.aggregates[bot_id]) for bot_id in sorted(result.aggregates)),
+        )
+
+    if match_csv_path is not None:
+        _write_csv(
+            match_csv_path,
+            _match_csv_headers(),
+            (_match_csv_row(match) for match in result.matches),
+        )
+
+    if summary_csv_path is not None:
+        _write_csv(
+            summary_csv_path,
             _summary_csv_headers(),
             (_summary_csv_row(result.aggregates[bot_id]) for bot_id in sorted(result.aggregates)),
         )
@@ -747,6 +764,17 @@ def _write_single_sheet_xlsx(
             "</Relationships>",
         )
         archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+
+def _write_csv(
+    path: Path,
+    headers: list[str],
+    rows: Iterable[list[str | int | float | bool]],
+) -> None:
+    with path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(headers)
+        writer.writerows(rows)
 
 
 def _sheet_xml(rows: list[list[str | int | float | bool]]) -> str:
