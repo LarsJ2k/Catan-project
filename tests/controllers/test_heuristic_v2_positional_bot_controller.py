@@ -91,6 +91,19 @@ def test_v2_prefers_strong_settlement_over_weak_road() -> None:
     assert isinstance(chosen, BuildSettlement)
 
 
+def test_v2_shortlist_scoring_boosts_progress_road_when_no_settlement_is_legal() -> None:
+    state = _state(131)
+    state.placed.settlements[0] = 1
+    bot = HeuristicV2PositionalBotController(seed=2, enable_delay=False)
+    road_action = BuildRoad(player_id=1, edge_id=0)
+    legal = [road_action, EndTurn(player_id=1)]
+
+    base = bot._score_action(road_action, state)
+    boosted = bot._score_action_for_v2_shortlist(road_action, state, legal)
+
+    assert boosted >= base
+
+
 def test_v2_prefers_city_over_dev_like_low_value_trade_action() -> None:
     state = _state(104)
     state.players[1].resources[ResourceType.WOOL] = 4

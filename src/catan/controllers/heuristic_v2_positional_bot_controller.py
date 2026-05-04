@@ -10,6 +10,8 @@ from catan.core.engine import apply_action
 from catan.core.models.action import (
     Action,
     BankTrade,
+    BuildRoad,
+    BuildSettlement,
     BuyDevelopmentCard,
     DiscardResources,
     ProposePlayerTrade,
@@ -92,7 +94,7 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
 
         score_start = perf_counter()
         candidate_count = max(1, int(self._params.candidate_count))
-        action_scored = [(action, self._score_action(action, state)) for action in candidates]
+        action_scored = [(action, self._score_action_for_v2_shortlist(action, state, candidates)) for action in candidates]
         profile.action_scoring_time_s = perf_counter() - score_start
 
         topn_start = perf_counter()
@@ -161,6 +163,19 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         if high - low < 1e-9:
             return {action: 50.0 for action, _ in scored_actions}
         return {action: ((score - low) / (high - low)) * 100.0 for action, score in scored_actions}
+
+    def _score_action_for_v2_shortlist(self, action: Action, state: GameState, legal_actions: Sequence[Action]) -> float:
+        score = self._score_action(action, state)
+        if not isinstance(action, BuildRoad):
+            return score
+        if any(isinstance(candidate, BuildSettlement) for candidate in legal_actions):
+            return score
+        before = self._roads_to_targets(state, action.player_id)
+        after = self._roads_to_targets(state, action.player_id, planned_edges={action.edge_id})
+        road_progress = self._score_road_progress(state, before, after)
+        if road_progress > 0:
+            return score + (self._params.road_no_settlement_progress_bonus * 0.6)
+        return score
 
     def _evaluate_after_action(self, state: GameState, action: Action, current_position_score: float) -> tuple[float, str, V2DecisionProfile]:
         profile = V2DecisionProfile()
