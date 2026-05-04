@@ -441,6 +441,19 @@ class PygameRenderer:
         row_gap = 6
         content_top = rect.y + 34
         player_row_h = max((rect.height - 42 - (row_gap * 3)) // 4, 56)
+        text_start_x = 36
+        text_right_pad = 8
+        text_line_h = 16
+
+        def _fit_line(text: str, max_width: int) -> str:
+            if self.small_font.size(text)[0] <= max_width:
+                return text
+            ellipsis = "..."
+            clipped = text
+            while clipped and self.small_font.size(clipped + ellipsis)[0] > max_width:
+                clipped = clipped[:-1]
+            return (clipped + ellipsis) if clipped else ellipsis
+
         for row_idx in range(4):
             player_id = row_idx + 1
             row_y = content_top + row_idx * (player_row_h + row_gap)
@@ -452,27 +465,30 @@ class PygameRenderer:
 
             histories = player_decisions.get(player_id, []) if isinstance(player_decisions, dict) else []
             if not isinstance(histories, list) or not histories:
-                screen.blit(self.small_font.render("Wachten op keuzes...", True, (190, 190, 198)), (row_rect.x + 54, row_rect.y + 5))
+                wait_line = _fit_line("Wachten op keuzes...", row_rect.width - text_start_x - text_right_pad)
+                screen.blit(self.small_font.render(wait_line, True, (190, 190, 198)), (row_rect.x + text_start_x, row_rect.y + 5))
                 continue
 
             line_y = row_rect.y + 5
+            text_max_width = row_rect.width - text_start_x - text_right_pad
             for history_idx, history in enumerate(histories[:2]):
                 if not isinstance(history, dict):
                     continue
                 prefix = f"K{history_idx + 1}"
                 candidate_lines = history.get("candidate_lines", [])
                 if isinstance(candidate_lines, list) and candidate_lines:
-                    top_line = f"{prefix} 1) {str(candidate_lines[0])[:34]}"
-                    screen.blit(self.small_font.render(top_line, True, (215, 215, 220)), (row_rect.x + 54, line_y))
-                    line_y += 16
+                    top_line = _fit_line(f"{prefix} 1) {str(candidate_lines[0])}", text_max_width)
+                    screen.blit(self.small_font.render(top_line, True, (215, 215, 220)), (row_rect.x + text_start_x, line_y))
+                    line_y += text_line_h
                     if len(candidate_lines) > 1:
-                        second_line = f"{prefix} 2) {str(candidate_lines[1])[:34]}"
-                        screen.blit(self.small_font.render(second_line, True, (195, 195, 202)), (row_rect.x + 54, line_y))
-                        line_y += 16
+                        second_line = _fit_line(f"{prefix} 2) {str(candidate_lines[1])}", text_max_width)
+                        screen.blit(self.small_font.render(second_line, True, (195, 195, 202)), (row_rect.x + text_start_x, line_y))
+                        line_y += text_line_h
                 else:
                     fallback = history.get("fallback_message", "Geen kandidaatdata")
-                    screen.blit(self.small_font.render(f"{prefix} {str(fallback)[:34]}", True, (190, 190, 198)), (row_rect.x + 54, line_y))
-                    line_y += 16
+                    fallback_line = _fit_line(f"{prefix} {str(fallback)}", text_max_width)
+                    screen.blit(self.small_font.render(fallback_line, True, (190, 190, 198)), (row_rect.x + text_start_x, line_y))
+                    line_y += text_line_h
 
     def _draw_spectator_dashboard(
         self,
