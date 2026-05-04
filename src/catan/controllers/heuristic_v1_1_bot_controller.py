@@ -64,6 +64,7 @@ class HeuristicV1_1BotController(HeuristicV1BaselineBotController):
         score = super()._score_action(action, state)
         note_parts: list[str] = []
         if isinstance(action, BuildRoad):
+            road_progress = 0.0
             if self._has_legal_settlement:
                 score -= self._params.road_when_settlement_available_penalty
                 note_parts.append("road penalty: settlement available")
@@ -76,10 +77,15 @@ class HeuristicV1_1BotController(HeuristicV1BaselineBotController):
                 if road_progress > 0:
                     score += self._params.road_no_settlement_progress_bonus
                     note_parts.append("road bonus: no settlement available")
+                    score += self._params.road_base_score * 0.35
+                    note_parts.append("road bonus: proactive expansion")
 
             if state is not None:
                 player_resources = state.players[action.player_id].resources
-                if player_resources.get(ResourceType.BRICK, 0) <= 1 or player_resources.get(ResourceType.LUMBER, 0) <= 1:
+                should_preserve_settlement_pair = self._has_legal_settlement or road_progress <= 0
+                if should_preserve_settlement_pair and (
+                    player_resources.get(ResourceType.BRICK, 0) <= 1 or player_resources.get(ResourceType.LUMBER, 0) <= 1
+                ):
                     score -= self._params.road_settlement_resource_lock_penalty
                     note_parts.append("road penalty: consumes brick/lumber needed for settlement")
 
