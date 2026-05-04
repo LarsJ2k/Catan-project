@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Mapping
 
 from catan.controllers.human_controller import HumanController
@@ -87,6 +88,11 @@ class PygameApp:
         selected_training_candidate_ids: set[str] = set()
         training_promotion_names: dict[str, str] = {}
         selected_training_field: str | None = None
+        training_run_thread: threading.Thread | None = None
+        training_progress_completed = 0
+        training_progress_total = 0
+        training_progress_state: dict[str, int] = {"done": 0, "total": 0}
+        training_running = False
         tournament_summary_lines: list[str] = []
         selected_seed_input = False
         list_scroll_offset = 0
@@ -378,18 +384,40 @@ class PygameApp:
                                 training_state = training_state.toggle_parent_bot(bot_specs[row_idx].bot_id)
                             continue
                         if run_training_rect.collidepoint(event.pos):
+                            if training_running:
+                                continue
                             config = training_state.to_training_config()
                             if config is None:
                                 training_error = "Invalid training settings."
                             else:
-                                try:
-                                    training_result = TrainingRunner().run(config)
-                                    training_ranked_rows = rank_candidates(training_result)
-                                    selected_training_candidate_ids = set()
-                                    training_promotion_names = {}
-                                    training_error = None
-                                except ValueError as exc:
-                                    training_error = str(exc)
+                                training_running = True
+                                training_progress_completed = 0
+                                training_progress_total = 0
+                                training_progress_state = {"done": 0, "total": 0}
+                                training_error = None
+                                training_result = None
+                                training_ranked_rows = []
+                                selected_training_candidate_ids = set()
+                                training_promotion_names = {}
+
+                                def _run_training_job() -> None:
+                                    nonlocal training_result, training_ranked_rows, training_error
+                                    nonlocal training_running, training_progress_state
+                                    try:
+                                        result = TrainingRunner().run(
+                                            config,
+                                            progress_callback=lambda done, total: training_progress_state.update(
+                                                {"done": done, "total": total}
+                                            ),
+                                        )
+                                        training_result = result
+                                        training_ranked_rows = rank_candidates(result)
+                                    except ValueError as exc:
+                                        training_error = str(exc)
+                                    finally:
+                                        training_running = False
+                                training_run_thread = threading.Thread(target=_run_training_job, daemon=True)
+                                training_run_thread.start()
                             continue
                         if training_result is not None:
                             results_top = 412
@@ -750,6 +778,12 @@ class PygameApp:
                     screen.blit(small_font.render(msg, True, (220, 130, 130)), (60, height - 125))
             else:
                 if flow_state.screen == AppScreen.TRAINING:
+                    if training_run_thread is not None:
+                        # Keep progress values in sync with the worker thread state.
+                        training_progress_completed = training_progress_state["done"]
+                        training_progress_total = training_progress_state["total"]
+                        if not training_run_thread.is_alive():
+                            training_run_thread = None
                     bot_specs = [bot for bot in list_bot_definitions() if mutable_numeric_parameter_keys(bot)]
                     parent_list_rect = self.pg.Rect(40, 100, width // 3, height - 220)
                     self.pg.draw.rect(screen, (35, 35, 52), parent_list_rect, border_radius=8)
@@ -775,14 +809,35 @@ class PygameApp:
                     run_training_rect = self.pg.Rect(width - 280, height - 130, 240, 42)
                     promote_rect = self.pg.Rect(width - 280, height - 80, 240, 42)
                     back_training_rect = self.pg.Rect(40, height - 70, 160, 42)
-                    self.pg.draw.rect(screen, (70, 120, 70), run_training_rect, border_radius=8)
+                    run_color = (90, 90, 90) if training_running else (70, 120, 70)
+                    self.pg.draw.rect(screen, run_color, run_training_rect, border_radius=8)
                     self.pg.draw.rect(screen, (98, 98, 130), promote_rect, border_radius=8)
                     self.pg.draw.rect(screen, (90, 90, 90), back_training_rect, border_radius=8)
-                    screen.blit(small_font.render("Generate + Run", True, (255, 255, 255)), (run_training_rect.x + 52, run_training_rect.y + 10))
+                    run_label = "Running..." if training_running else "Generate + Run"
+                    screen.blit(small_font.render(run_label, True, (255, 255, 255)), (run_training_rect.x + 52, run_training_rect.y + 10))
                     screen.blit(small_font.render("Promote Selected", True, (255, 255, 255)), (promote_rect.x + 40, promote_rect.y + 10))
                     screen.blit(small_font.render("Back", True, (255, 255, 255)), (back_training_rect.x + 55, back_training_rect.y + 10))
                     if training_error is not None:
                         screen.blit(small_font.render(training_error, True, (230, 150, 150)), (width // 3 + 70, height - 84))
+                    if training_running:
+                        progress_top = 412
+                        bar_rect = self.pg.Rect(width // 3 + 70, progress_top + 22, width - (width // 3 + 120), 24)
+                        self.pg.draw.rect(screen, (44, 44, 64), bar_rect, border_radius=6)
+                        ratio = (
+                            training_progress_completed / training_progress_total
+                            if training_progress_total > 0
+                            else 0.0
+                        )
+                        fill_width = max(0, min(bar_rect.width, int(bar_rect.width * ratio)))
+                        if fill_width > 0:
+                            self.pg.draw.rect(
+                                screen,
+                                (82, 136, 102),
+                                self.pg.Rect(bar_rect.x, bar_rect.y, fill_width, bar_rect.height),
+                                border_radius=6,
+                            )
+                        progress_text = f"Training progress: {training_progress_completed}/{training_progress_total} matches"
+                        screen.blit(small_font.render(progress_text, True, (220, 220, 235)), (bar_rect.x, progress_top - 2))
                     screen.blit(small_font.render("Results", True, (220, 220, 235)), (width // 3 + 70, 384))
                     if training_result is not None:
                         for idx, row in enumerate(training_ranked_rows[:10]):

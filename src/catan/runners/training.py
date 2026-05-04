@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from random import Random
 from time import perf_counter
+from typing import Callable
 from catan.controllers.bot_catalog import (
     BotDefinition,
     build_bot_controller_from_bot_definition,
@@ -171,7 +172,7 @@ class TrainingRunner:
     def __init__(self) -> None:
         self._game_runner = HeadlessRunner()
 
-    def run(self, config: TrainingConfig) -> TrainingResult:
+    def run(self, config: TrainingConfig, *, progress_callback: Callable[[int, int], None] | None = None) -> TrainingResult:
         candidates = generate_temporary_candidates(config)
         id_to_candidate = {candidate.temporary_id: candidate for candidate in candidates}
         matches = generate_balanced_screening_matches(
@@ -180,8 +181,13 @@ class TrainingRunner:
             base_seed=config.tournament_seed,
         )
         results: list[MatchResult] = []
+        total_matches = len(matches)
+        if progress_callback is not None:
+            progress_callback(0, total_matches)
         for idx, match in enumerate(matches, start=1):
             results.append(self._play_match(match, idx, id_to_candidate))
+            if progress_callback is not None:
+                progress_callback(idx, total_matches)
         screening = TournamentResult(
             config=TournamentConfig(
                 selected_bots=tuple(id_to_candidate.keys()),
