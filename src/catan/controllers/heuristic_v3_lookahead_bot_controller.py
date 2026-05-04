@@ -12,6 +12,7 @@ from catan.core.models.action import (
     BuildRoad,
     BuildSettlement,
     BuyDevelopmentCard,
+    DiscardResources,
     EndTurn,
     ProposePlayerTrade,
 )
@@ -33,6 +34,16 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
             return chosen
 
         candidates = self._prune_candidates(state, list(legal_actions)) or list(legal_actions)
+        discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
+        if discard_placeholder is not None:
+            chosen = self._choose_discard_action(state, discard_placeholder.player_id)
+            self._last_decision = {
+                "kind": "heuristic_v3_lookahead",
+                "chosen_action": chosen,
+                "top_candidates": [{"action": chosen, "action_score": 25.0, "position_score": 0.0, "lookahead_score": 0.0, "combined_score": 25.0, "summary": "discard policy"}],
+                "legal_action_count": len(legal_actions),
+            }
+            return chosen
         scored = [(a, self._score_action(a, state)) for a in candidates]
         scored.sort(key=lambda item: item[1], reverse=True)
         shortlisted = scored[: max(1, int(self._params.v3_candidate_count))]
