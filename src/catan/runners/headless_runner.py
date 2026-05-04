@@ -23,7 +23,9 @@ from catan.core.models.action import (
     PlayMonopolyCard,
     PlayRoadBuildingCard,
     PlayYearOfPlentyCard,
+    DiscardResources,
 )
+from catan.core.models.enums import ResourceType
 from catan.core.models.enums import DevelopmentCardType
 from catan.core.models.state import GameState
 
@@ -99,6 +101,8 @@ class HeadlessRunner:
                 stalled_reason = "no_legal_actions"
                 break
             action = controller.choose_action(observation, legal)
+            if isinstance(action, DiscardResources) and not action.resources:
+                action = self._materialize_discard_action(current, action.player_id)
             next_state = apply_action(current, action)
             if isinstance(action, EndTurn):
                 completed_turn_actions += 1
@@ -163,6 +167,23 @@ class HeadlessRunner:
             full_turn_count=full_turn_count,
             termination_reason=termination_reason,
             stalled_debug_snapshot=stalled_debug_snapshot,
+        )
+
+    def _materialize_discard_action(self, state: GameState, player_id: int) -> DiscardResources:
+        required = state.discard_requirements.get(player_id, 0)
+        hand = dict(state.players[player_id].resources)
+        discards: dict[ResourceType, int] = {resource: 0 for resource in ResourceType}
+        while required > 0:
+            available = [resource for resource, amount in hand.items() if amount > 0]
+            if not available:
+                break
+            pick = max(available, key=lambda resource: hand[resource])
+            hand[pick] -= 1
+            discards[pick] += 1
+            required -= 1
+        return DiscardResources(
+            player_id=player_id,
+            resources=tuple((resource, amount) for resource, amount in discards.items() if amount > 0),
         )
 
     def _active_player(self, state: GameState) -> int | None:
