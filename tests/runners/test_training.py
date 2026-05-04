@@ -135,3 +135,16 @@ def test_training_setup_state_builds_config_for_multi_parent() -> None:
     config = state.to_training_config()
     assert config is not None
     assert config.parent_bot_ids == ("heuristic_bot", "heuristic_v1_1")
+
+
+def test_training_setup_state_previews_match_count() -> None:
+    state = (
+        TrainingSetupState()
+        .toggle_parent_bot("heuristic_bot")
+        .toggle_parent_bot("heuristic_v1_1")
+        .toggle_parent_bot("heuristic_v1_baseline")
+        .toggle_parent_bot("heuristic_v2_positional")
+    )
+    preview = state.preview_match_count()
+    assert preview is not None
+    assert preview > 0
