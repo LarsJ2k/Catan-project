@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from enum import Enum
-from itertools import combinations
+from itertools import combinations, permutations
 import json
 from pathlib import Path
 from statistics import mean
@@ -25,6 +25,7 @@ from catan.runners.launcher import create_controllers
 class TournamentFormat(str, Enum):
     FIXED_LINEUP_BATCH = "fixed_lineup_batch"
     ROUND_ROBIN = "round_robin"
+    BALANCED_SAMPLE = "balanced_sample"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,9 @@ class TournamentConfig:
     seed_blocks: int
     seat_rotation_enabled: bool = True
     base_seed: int = 1
+    schedule_seed: int = 1
+    games_per_bot: int = 20
+    seed_mode: str = "unique_per_game"
     fixed_lineup: tuple[str, ...] | None = None
     output_options: TournamentOutputOptions = TournamentOutputOptions()
     enable_v2_profiling: bool = False
@@ -236,7 +240,45 @@ def generate_lineups(config: TournamentConfig) -> tuple[tuple[str, ...], ...]:
     return tuple(combinations(config.selected_bots, 4))
 
 
+
+
+def _generate_balanced_sample_matches(config: TournamentConfig) -> tuple[MatchConfig, ...]:
+    bots = tuple(config.selected_bots)
+    if len(bots) < 4:
+        raise ValueError("Balanced sample requires at least 4 bots.")
+    total_games = (len(bots) * config.games_per_bot + 3) // 4
+    combos = list(combinations(bots, 4))
+    games_played = {b: 0 for b in bots}
+    seat_counts = {b: [0, 0, 0, 0] for b in bots}
+    pair_counts = {tuple(sorted((a,b))):0 for a,b in combinations(bots,2)}
+    matches: list[MatchConfig] = []
+    for game_idx in range(total_games):
+        def lineup_score(lineup: tuple[str,...]) -> tuple[int,int,int,tuple[str,...]]:
+            projected_games = dict(games_played)
+            for b in lineup:
+                projected_games[b] += 1
+            game_penalty = (max(projected_games.values()) - min(projected_games.values())) * 1000 + sum(games_played[b] for b in lineup)
+            pair_penalty = sum(pair_counts[tuple(sorted((a,b)))] for a,b in combinations(lineup,2))
+            need_penalty = sum(max(0, games_played[b] - min(games_played.values())) for b in lineup)
+            return (game_penalty, pair_penalty, need_penalty, lineup)
+        lineup = min(combos, key=lineup_score)
+        def seat_score(order: tuple[str,...]) -> tuple[int,int,tuple[str,...]]:
+            primary=sum(seat_counts[b][i] for i,b in enumerate(order))
+            secondary=max(seat_counts[b][i] for i,b in enumerate(order))
+            return (primary, secondary, order)
+        seat_order=min(permutations(lineup), key=seat_score)
+        seed = config.base_seed + game_idx
+        matches.append(MatchConfig(lineup=lineup, seed=seed, seat_order=seat_order, game_index_within_seed_block=game_idx, seat_rotation_block_id=game_idx))
+        for b in lineup:
+            games_played[b]+=1
+        for i,b in enumerate(seat_order):
+            seat_counts[b][i]+=1
+        for a,b in combinations(lineup,2):
+            pair_counts[tuple(sorted((a,b)))]+=1
+    return tuple(matches)
 def generate_match_configs(config: TournamentConfig) -> tuple[MatchConfig, ...]:
+    if config.format == TournamentFormat.BALANCED_SAMPLE:
+        return _generate_balanced_sample_matches(config)
     matches: list[MatchConfig] = []
     seat_rotation_block_id = 0
     for lineup in generate_lineups(config):

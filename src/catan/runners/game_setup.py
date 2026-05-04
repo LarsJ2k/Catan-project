@@ -198,7 +198,10 @@ class TournamentSetupState:
     selected_bot: str | None = None
     format: str = "fixed_lineup_batch"
     seed_blocks_text: str = "10"
+    games_per_bot_text: str = "20"
     base_seed_text: str = "1"
+    schedule_seed_text: str = "1"
+    seed_mode: str = "unique_per_game"
     seat_rotation_enabled: bool = True
     export_json: bool = True
     export_csv: bool = True
@@ -226,7 +229,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -240,7 +246,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=format_value,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -254,7 +263,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=value,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -296,7 +308,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=enabled,
             export_csv=self.export_csv,
@@ -310,7 +325,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=enabled,
@@ -324,7 +342,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -338,7 +359,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -352,7 +376,10 @@ class TournamentSetupState:
             selected_bot=controller_type,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -372,7 +399,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -390,7 +420,10 @@ class TournamentSetupState:
             selected_bot=self.selected_bot,
             format=self.format,
             seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=self.games_per_bot_text,
             base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
             seat_rotation_enabled=self.seat_rotation_enabled,
             export_json=self.export_json,
             export_csv=self.export_csv,
@@ -399,11 +432,13 @@ class TournamentSetupState:
         )
 
     def preview_match_count(self) -> int | None:
-        from catan.runners.tournament import generate_lineups
+        from catan.runners.tournament import TournamentFormat, generate_lineups
 
         config = self.to_tournament_config()
         if config is None:
             return None
+        if config.format == TournamentFormat.BALANCED_SAMPLE:
+            return (len(config.selected_bots) * config.games_per_bot + 3) // 4
         lineup_count = len(generate_lineups(config))
         matches_per_lineup = 4 if config.seat_rotation_enabled else 1
         return lineup_count * config.seed_blocks * matches_per_lineup
@@ -415,14 +450,20 @@ class TournamentSetupState:
             return None
         if self.format == TournamentFormat.ROUND_ROBIN.value and len(self.selected_bots) < 4:
             return None
+        if self.format == TournamentFormat.BALANCED_SAMPLE.value and len(self.selected_bots) < 4:
+            return None
         try:
             seed_blocks = int(self.seed_blocks_text)
             base_seed = int(self.base_seed_text)
+            schedule_seed = int(self.schedule_seed_text)
+            games_per_bot = int(self.games_per_bot_text)
         except ValueError:
             return None
-        if seed_blocks <= 0:
-            return None
         format_enum = TournamentFormat(self.format)
+        if format_enum != TournamentFormat.BALANCED_SAMPLE and seed_blocks <= 0:
+            return None
+        if format_enum == TournamentFormat.BALANCED_SAMPLE and games_per_bot <= 0:
+            return None
         fixed_lineup: tuple[str, ...] | None = None
         if format_enum == TournamentFormat.FIXED_LINEUP_BATCH:
             repeated = [self.selected_bots[idx % len(self.selected_bots)] for idx in range(4)]
@@ -433,6 +474,9 @@ class TournamentSetupState:
             seed_blocks=seed_blocks,
             seat_rotation_enabled=self.seat_rotation_enabled,
             base_seed=base_seed,
+            schedule_seed=schedule_seed,
+            games_per_bot=games_per_bot,
+            seed_mode=self.seed_mode,
             fixed_lineup=fixed_lineup,
             output_options=TournamentOutputOptions(
                 write_json=self.export_json,
