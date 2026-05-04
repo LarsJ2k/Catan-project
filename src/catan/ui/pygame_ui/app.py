@@ -806,6 +806,12 @@ class PygameApp:
                         rect = self.pg.Rect(width // 3 + 70, y, 220, 34)
                         self.pg.draw.rect(screen, (48, 62, 86), rect, border_radius=6)
                         screen.blit(small_font.render(f"{label}: {value}", True, (235, 235, 245)), (rect.x + 8, rect.y + 7))
+                    preview_matches = training_state.preview_match_count()
+                    if preview_matches is None:
+                        preview_text = "Te spelen games: -"
+                    else:
+                        preview_text = f"Te spelen games: {preview_matches}"
+                    screen.blit(small_font.render(preview_text, True, (220, 220, 235)), (width // 3 + 70, 404))
                     run_training_rect = self.pg.Rect(width - 280, height - 130, 240, 42)
                     promote_rect = self.pg.Rect(width - 280, height - 80, 240, 42)
                     back_training_rect = self.pg.Rect(40, height - 70, 160, 42)

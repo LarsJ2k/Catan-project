@@ -500,3 +500,19 @@ class TrainingSetupState:
             games_per_bot=games_per_bot,
             tournament_seed=tournament_seed,
         )
+
+    def preview_match_count(self) -> int | None:
+        from catan.runners.training import generate_balanced_screening_matches, generate_temporary_candidates
+
+        config = self.to_training_config()
+        if config is None:
+            return None
+        candidates = generate_temporary_candidates(config)
+        if len(candidates) < 4:
+            return None
+        matches = generate_balanced_screening_matches(
+            tuple(candidate.temporary_id for candidate in candidates),
+            games_per_bot=config.games_per_bot,
+            base_seed=config.tournament_seed,
+        )
+        return len(matches)
