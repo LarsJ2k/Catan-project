@@ -655,3 +655,49 @@ def _seat_result() -> MatchSeatResult:
         player_trades_completed=0,
         total_resources_earned=0,
     )
+
+def test_balanced_sample_generation_is_deterministic_and_seeded() -> None:
+    bots = (
+        ControllerType.RANDOM_BOT.value,
+        ControllerType.HEURISTIC_BOT.value,
+        ControllerType.SIMPLE_GOAL_BOT.value,
+        ControllerType.HEURISTIC_V1_BASELINE.value,
+        ControllerType.HEURISTIC_V2_POSITIONAL.value,
+    )
+    config = TournamentConfig(
+        selected_bots=bots,
+        format=TournamentFormat.BALANCED_SAMPLE,
+        seed_blocks=1,
+        games_per_bot=20,
+        base_seed=7,
+        schedule_seed=11,
+    )
+    first = generate_match_configs(config)
+    second = generate_match_configs(config)
+    assert first == second
+    assert len(first) == 25
+    assert all(len(m.lineup) == 4 for m in first)
+    assert all(all(bot in bots for bot in m.lineup) for m in first)
+    assert [m.seed for m in first][:4] == [7, 8, 9, 10]
+
+
+def test_balanced_sample_approximately_balances_games_and_seats() -> None:
+    bots = (
+        ControllerType.RANDOM_BOT.value,
+        ControllerType.HEURISTIC_BOT.value,
+        ControllerType.SIMPLE_GOAL_BOT.value,
+        ControllerType.HEURISTIC_V1_BASELINE.value,
+        ControllerType.HEURISTIC_V2_POSITIONAL.value,
+        ControllerType.HEURISTIC_V1_1.value,
+    )
+    matches = generate_match_configs(TournamentConfig(selected_bots=bots, format=TournamentFormat.BALANCED_SAMPLE, seed_blocks=1, games_per_bot=20))
+    games = {b: 0 for b in bots}
+    seats = {b: [0, 0, 0, 0] for b in bots}
+    for m in matches:
+        for b in m.lineup:
+            games[b] += 1
+        for i, b in enumerate(m.seat_order):
+            seats[b][i] += 1
+    assert max(games.values()) - min(games.values()) <= 1
+    for b in bots:
+        assert max(seats[b]) - min(seats[b]) <= 1
