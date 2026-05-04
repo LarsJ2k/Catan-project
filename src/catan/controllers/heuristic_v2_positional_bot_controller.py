@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any, Sequence
 
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
@@ -38,6 +38,8 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         self._enable_v2_profiling = enable_v2_profiling
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
+        if self._enable_delay and self._delay_seconds > 0:
+            sleep(self._delay_seconds)
         profile = V2DecisionProfile()
         decision_start = perf_counter()
         prep_start = perf_counter()
