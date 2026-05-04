@@ -235,6 +235,7 @@ class PygameApp:
                     list_scroll_offset = max(0, min(list_scroll_offset, max_bot_scroll))
                     fixed_format_rect = self.pg.Rect(60, height - 245, 220, 40)
                     round_robin_rect = self.pg.Rect(290, height - 245, 180, 40)
+                    balanced_sample_rect = self.pg.Rect(480, height - 245, 220, 40)
                     seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
                     export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
                     export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
@@ -286,6 +287,9 @@ class PygameApp:
                         if round_robin_rect.collidepoint(event.pos):
                             tournament_state = tournament_state.with_format(TournamentFormat.ROUND_ROBIN.value)
                             continue
+                        if balanced_sample_rect.collidepoint(event.pos):
+                            tournament_state = tournament_state.with_format(TournamentFormat.BALANCED_SAMPLE.value)
+                            continue
                         if seat_rotation_rect.collidepoint(event.pos):
                             tournament_state = tournament_state.with_seat_rotation_enabled(not tournament_state.seat_rotation_enabled)
                             continue
@@ -301,12 +305,20 @@ class PygameApp:
                             )
                             continue
                         if seed_minus_rect.collidepoint(event.pos):
-                            new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
-                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                            if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value:
+                                new_games_per_bot = max(1, int(tournament_state.games_per_bot_text or "1") - 1)
+                                tournament_state = tournament_state.with_games_per_bot_text(str(new_games_per_bot))
+                            else:
+                                new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
+                                tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
                             continue
                         if seed_plus_rect.collidepoint(event.pos):
-                            new_seed_blocks = int(tournament_state.seed_blocks_text or "1") + 1
-                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                            if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value:
+                                new_games_per_bot = int(tournament_state.games_per_bot_text or "1") + 1
+                                tournament_state = tournament_state.with_games_per_bot_text(str(new_games_per_bot))
+                            else:
+                                new_seed_blocks = int(tournament_state.seed_blocks_text or "1") + 1
+                                tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
                             continue
                         if add_bot_rect.collidepoint(event.pos):
                             tournament_state = tournament_state.add_selected_bot()
@@ -336,6 +348,8 @@ class PygameApp:
                             tournament_state = tournament_state.with_format(TournamentFormat.FIXED_LINEUP_BATCH.value)
                         elif event.key == self.pg.K_2:
                             tournament_state = tournament_state.with_format(TournamentFormat.ROUND_ROBIN.value)
+                        elif event.key == self.pg.K_3:
+                            tournament_state = tournament_state.with_format(TournamentFormat.BALANCED_SAMPLE.value)
                         elif event.key == self.pg.K_r:
                             tournament_state = tournament_state.with_seat_rotation_enabled(not tournament_state.seat_rotation_enabled)
                         elif event.key == self.pg.K_j:
@@ -347,11 +361,19 @@ class PygameApp:
                                 not tournament_state.export_stalled_games_debug
                             )
                         elif event.key == self.pg.K_MINUS:
-                            new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
-                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                            if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value:
+                                new_games_per_bot = max(1, int(tournament_state.games_per_bot_text or "1") - 1)
+                                tournament_state = tournament_state.with_games_per_bot_text(str(new_games_per_bot))
+                            else:
+                                new_seed_blocks = max(1, int(tournament_state.seed_blocks_text or "1") - 1)
+                                tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
                         elif event.key == self.pg.K_EQUALS:
-                            new_seed_blocks = int(tournament_state.seed_blocks_text or "1") + 1
-                            tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
+                            if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value:
+                                new_games_per_bot = int(tournament_state.games_per_bot_text or "1") + 1
+                                tournament_state = tournament_state.with_games_per_bot_text(str(new_games_per_bot))
+                            else:
+                                new_seed_blocks = int(tournament_state.seed_blocks_text or "1") + 1
+                                tournament_state = tournament_state.with_seed_blocks_text(str(new_seed_blocks))
                         elif self.pg.K_a <= event.key <= self.pg.K_z:
                             index = event.key - self.pg.K_a
                             if 0 <= index < len(bot_specs):
@@ -998,6 +1020,7 @@ class PygameApp:
                     screen.set_clip(clip_before)
                     fixed_format_rect = self.pg.Rect(60, height - 245, 220, 40)
                     round_robin_rect = self.pg.Rect(290, height - 245, 180, 40)
+                    balanced_sample_rect = self.pg.Rect(480, height - 245, 220, 40)
                     self.pg.draw.rect(
                         screen,
                         (82, 110, 98) if tournament_state.format == TournamentFormat.FIXED_LINEUP_BATCH.value else (58, 58, 86),
@@ -1010,8 +1033,15 @@ class PygameApp:
                         round_robin_rect,
                         border_radius=8,
                     )
+                    self.pg.draw.rect(
+                        screen,
+                        (82, 110, 98) if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value else (58, 58, 86),
+                        balanced_sample_rect,
+                        border_radius=8,
+                    )
                     screen.blit(small_font.render("Fixed Lineup Batch", True, (255, 255, 255)), (fixed_format_rect.x + 18, fixed_format_rect.y + 10))
                     screen.blit(small_font.render("Round Robin", True, (255, 255, 255)), (round_robin_rect.x + 32, round_robin_rect.y + 10))
+                    screen.blit(small_font.render("Balanced Sample", True, (255, 255, 255)), (balanced_sample_rect.x + 24, balanced_sample_rect.y + 10))
                     seat_rotation_rect = self.pg.Rect(60, height - 195, 180, 38)
                     export_json_rect = self.pg.Rect(250, height - 195, 170, 38)
                     export_csv_rect = self.pg.Rect(430, height - 195, 170, 38)
@@ -1032,8 +1062,10 @@ class PygameApp:
                     self.pg.draw.rect(screen, (70, 80, 100), seed_plus_rect, border_radius=6)
                     screen.blit(font.render("-", True, (255, 255, 255)), (seed_minus_rect.x + 12, seed_minus_rect.y - 1))
                     screen.blit(font.render("+", True, (255, 255, 255)), (seed_plus_rect.x + 9, seed_plus_rect.y - 3))
+                    seed_label = "Games / Bot" if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value else "Seed Blocks"
+                    seed_value = tournament_state.games_per_bot_text if tournament_state.format == TournamentFormat.BALANCED_SAMPLE.value else tournament_state.seed_blocks_text
                     screen.blit(
-                        small_font.render(f"Seed Blocks: {tournament_state.seed_blocks_text}", True, (220, 220, 235)),
+                        small_font.render(f"{seed_label}: {seed_value}", True, (220, 220, 235)),
                         (112, height - 138),
                     )
                     tournament_config = tournament_state.to_tournament_config()
@@ -1051,8 +1083,8 @@ class PygameApp:
                     screen.blit(small_font.render("Run Tournament", True, (255, 255, 255)), (start_rect.x + 20, start_rect.y + 10))
                     if tournament_config is None:
                         help_text = (
-                            "Fixed lineup needs at least 1 bot. Round robin needs at least 4 bots."
-                            if tournament_state.format == TournamentFormat.ROUND_ROBIN.value
+                            "Round robin and balanced sample need at least 4 bots."
+                            if tournament_state.format in (TournamentFormat.ROUND_ROBIN.value, TournamentFormat.BALANCED_SAMPLE.value)
                             else "Select at least 1 bot to run a fixed lineup tournament."
                         )
                         screen.blit(small_font.render(help_text, True, (220, 130, 130)), (60, height - 98))

@@ -275,6 +275,24 @@ class TournamentSetupState:
             enable_v2_profiling=self.enable_v2_profiling,
         )
 
+
+    def with_games_per_bot_text(self, value: str) -> TournamentSetupState:
+        return TournamentSetupState(
+            selected_bots=self.selected_bots,
+            selected_bot=self.selected_bot,
+            format=self.format,
+            seed_blocks_text=self.seed_blocks_text,
+            games_per_bot_text=value,
+            base_seed_text=self.base_seed_text,
+            schedule_seed_text=self.schedule_seed_text,
+            seed_mode=self.seed_mode,
+            seat_rotation_enabled=self.seat_rotation_enabled,
+            export_json=self.export_json,
+            export_csv=self.export_csv,
+            export_stalled_games_debug=self.export_stalled_games_debug,
+            enable_v2_profiling=self.enable_v2_profiling,
+        )
+
     def with_base_seed_text(self, value: str) -> TournamentSetupState:
         return TournamentSetupState(
             selected_bots=self.selected_bots,
