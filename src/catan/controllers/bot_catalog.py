@@ -14,6 +14,7 @@ from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
+from catan.controllers.heuristic_v3_lookahead_bot_controller import HeuristicV3LookaheadBotController
 from catan.runners.game_setup import ControllerType
 
 
@@ -64,6 +65,10 @@ def _heuristic_v2_positional_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicV2PositionalBotController(enable_delay=enable_bot_delay)
 
 
+def _heuristic_v3_lookahead_factory(enable_bot_delay: bool) -> Controller:
+    return HeuristicV3LookaheadBotController(enable_delay=enable_bot_delay)
+
+
 _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
     ControllerSpec(
         controller_type=ControllerType.RANDOM_BOT,
@@ -106,6 +111,12 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
         label="Heuristic v2 Positional",
         is_bot=True,
         factory=_heuristic_v2_positional_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.HEURISTIC_V3_LOOKAHEAD,
+        label="Heuristic v3 Lookahead",
+        is_bot=True,
+        factory=_heuristic_v3_lookahead_factory,
     ),
 )
 
@@ -168,6 +179,14 @@ _BUILTIN_BOTS: tuple[BotDefinition, ...] = (
         base_controller_type=ControllerType.HEURISTIC_V2_POSITIONAL,
         description="Candidate-shortlist + simulated resulting-position evaluation.",
         parameters=default_family_parameters(ControllerType.HEURISTIC_V2_POSITIONAL),
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_v3_lookahead",
+        display_name="Heuristic v3 Lookahead",
+        base_controller_type=ControllerType.HEURISTIC_V3_LOOKAHEAD,
+        description="Pruned shortlist + immediate state score + limited future-option lookahead.",
+        parameters=default_family_parameters(ControllerType.HEURISTIC_V3_LOOKAHEAD),
         is_builtin=True,
     ),
 )
@@ -373,6 +392,13 @@ def build_bot_controller_from_bot_definition(
             enable_delay=enable_bot_delay,
             heuristic_params=HeuristicScoringParams.from_mapping(parameters),
             enable_v2_profiling=enable_v2_profiling,
+        )
+    if definition.base_controller_type == ControllerType.HEURISTIC_V3_LOOKAHEAD:
+        return HeuristicV3LookaheadBotController(
+            seed=seed,
+            delay_seconds=delay_seconds,
+            enable_delay=enable_bot_delay,
+            heuristic_params=HeuristicScoringParams.from_mapping(parameters),
         )
     raise ValueError(f"Unsupported bot base type: {definition.base_controller_type}")
 

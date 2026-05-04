@@ -123,6 +123,7 @@ def test_available_controller_types_keep_human_first() -> None:
     assert ControllerType.HEURISTIC_V1_FIXED.value in controller_types
     assert ControllerType.HEURISTIC_V1_1.value in controller_types
     assert ControllerType.HEURISTIC_V2_POSITIONAL.value in controller_types
+    assert ControllerType.HEURISTIC_V3_LOOKAHEAD.value in controller_types
 
 
 def test_launch_config_can_create_simple_goal_bot_controller() -> None:
