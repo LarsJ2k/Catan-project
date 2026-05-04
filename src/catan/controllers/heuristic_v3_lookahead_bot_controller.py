@@ -24,9 +24,18 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
     """Limited-depth lookahead bot built on top of v2 positional heuristics."""
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
-        if len(legal_actions) <= 1:
-            return legal_actions[0]
         state = observation.state if isinstance(observation, DebugObservation) else None
+        if len(legal_actions) <= 1:
+            only_action = legal_actions[0]
+            if state is not None and isinstance(only_action, DiscardResources):
+                only_action = self._choose_discard_action(state, only_action.player_id)
+            self._last_decision = {
+                "kind": "heuristic_v3_lookahead",
+                "chosen_action": only_action,
+                "top_candidates": [{"action": only_action, "action_score": 0.0, "position_score": 0.0, "lookahead_score": 0.0, "combined_score": 0.0, "summary": "forced action"}],
+                "legal_action_count": len(legal_actions),
+            }
+            return only_action
         if state is None:
             chosen = super().choose_action(observation, legal_actions)
             if isinstance(self._last_decision, dict):

@@ -4,8 +4,9 @@ from catan.controllers.heuristic_params import HeuristicScoringParams, default_f
 from catan.controllers.heuristic_v3_lookahead_bot_controller import HeuristicV3LookaheadBotController
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state, get_legal_actions
-from catan.core.models.action import EndTurn
+from catan.core.models.action import DiscardResources, EndTurn
 from catan.core.models.state import InitialGameConfig
+from catan.core.models.enums import ResourceType
 from catan.core.observer import DebugObservation
 from catan.runners.game_setup import ControllerType
 
@@ -28,3 +29,14 @@ def test_v3_keeps_end_turn_when_only_safe_option() -> None:
     state = _state()
     action = HeuristicV3LookaheadBotController(seed=3, enable_delay=False).choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
     assert isinstance(action, EndTurn)
+
+
+def test_v3_builds_valid_discard_action_from_single_placeholder() -> None:
+    state = _state()
+    state.players[1].resources.clear()
+    state.players[1].resources.update({resource: 2 for resource in ResourceType})
+    state.discard_requirements = {1: 3}
+    placeholder = DiscardResources(player_id=1, resources=())
+    chosen = HeuristicV3LookaheadBotController(seed=1, enable_delay=False).choose_action(DebugObservation(state=state), [placeholder])
+    assert isinstance(chosen, DiscardResources)
+    assert sum(amount for _, amount in chosen.resources) == 3
