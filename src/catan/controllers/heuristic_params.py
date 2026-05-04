@@ -93,6 +93,29 @@ class HeuristicScoringParams:
     road_overbuild_penalty: float = 4.0
     no_expansion_penalty: float = 20.0
 
+    v3_candidate_count: int = 6
+    v3_max_lookahead_candidates: int = 4
+    v3_enable_rollout_lite: bool = False
+    v3_rollout_count: int = 0
+    v3_rollout_depth: int = 0
+    v3_action_score_weight: float = 0.15
+    v3_immediate_state_weight: float = 0.55
+    v3_lookahead_weight: float = 0.30
+    v3_next_city_weight: float = 30.0
+    v3_next_settlement_weight: float = 28.0
+    v3_next_dev_weight: float = 10.0
+    v3_next_road_target_weight: float = 12.0
+    v3_expected_income_weight: float = 6.0
+    v3_hand_flexibility_weight: float = 3.0
+    v3_discard_risk_penalty: float = 8.0
+    v3_road_overbuild_penalty: float = 8.0
+    v3_no_expansion_penalty: float = 25.0
+    v3_trade_loop_penalty: float = 30.0
+    v3_low_progress_penalty: float = 15.0
+    v3_robber_leader_block_weight: float = 4.0
+    v3_robber_production_block_weight: float = 3.0
+    v3_robber_self_block_penalty: float = 25.0
+
     @classmethod
     def from_mapping(cls, raw: Mapping[str, float | int | str | bool]) -> HeuristicScoringParams:
         values = asdict(cls())
@@ -195,6 +218,8 @@ def default_family_parameters(controller_type: ControllerType) -> dict[str, floa
         )
         return {**params.as_dict()}
     if controller_type == ControllerType.HEURISTIC_V2_POSITIONAL:
+        return {**HeuristicScoringParams().as_dict()}
+    if controller_type == ControllerType.HEURISTIC_V3_LOOKAHEAD:
         return {**HeuristicScoringParams().as_dict()}
     return {}
 
