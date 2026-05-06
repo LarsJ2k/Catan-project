@@ -84,3 +84,70 @@ def test_v3_debug_includes_state_delta_fields() -> None:
     assert "state_before" in top
     assert "state_after" in top
     assert "state_delta" in top
+
+
+def test_v3_can_initiate_player_trade_that_enables_city() -> None:
+    state = _state()
+    state.players[1].resources = {ResourceType.ORE: 2, ResourceType.GRAIN: 2, ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0}
+    bot = HeuristicV3LookaheadBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.BRICK, 1),), requested_resources=((ResourceType.ORE, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, ProposePlayerTrade)
+
+
+def test_v3_can_initiate_player_trade_that_enables_settlement() -> None:
+    state = _state()
+    state.players[1].resources = {ResourceType.BRICK: 0, ResourceType.LUMBER: 1, ResourceType.WOOL: 1, ResourceType.GRAIN: 1, ResourceType.ORE: 1}
+    bot = HeuristicV3LookaheadBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.ORE, 1),), requested_resources=((ResourceType.BRICK, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, ProposePlayerTrade)
+
+
+def test_v3_rejects_no_benefit_player_trade() -> None:
+    state = _state()
+    state.players[1].resources = {ResourceType.BRICK: 1, ResourceType.LUMBER: 1, ResourceType.WOOL: 0, ResourceType.GRAIN: 0, ResourceType.ORE: 0}
+    bot = HeuristicV3LookaheadBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.BRICK, 1),), requested_resources=((ResourceType.WOOL, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, EndTurn)
+
+
+def test_v3_rejects_goal_critical_giveaway_trade() -> None:
+    state = _state()
+    state.players[1].resources = {ResourceType.ORE: 3, ResourceType.GRAIN: 2, ResourceType.BRICK: 0, ResourceType.LUMBER: 0, ResourceType.WOOL: 0}
+    bot = HeuristicV3LookaheadBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.ORE, 1),), requested_resources=((ResourceType.BRICK, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, EndTurn)
+
+
+def test_v3_trade_debug_output_includes_scoring_fields() -> None:
+    state = _state()
+    state.players[1].resources = {ResourceType.ORE: 2, ResourceType.GRAIN: 2, ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0}
+    bot = HeuristicV3LookaheadBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.BRICK, 1),), requested_resources=((ResourceType.ORE, 1),)),
+        EndTurn(player_id=1),
+    ]
+    bot.choose_action(DebugObservation(state=state), legal)
+    candidate = next(item for item in bot._last_decision["top_candidates"] if isinstance(item["action"], ProposePlayerTrade))
+    trade_debug = candidate["trade_debug"]
+    assert "v2_trade_score=" in trade_debug
+    assert "v3_lookahead_trade_score=" in trade_debug
+    assert "state_delta=" in trade_debug
+    assert "enables_city=" in trade_debug
+    assert "enables_settlement=" in trade_debug
+    assert "enables_dev=" in trade_debug

@@ -69,6 +69,8 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
                 + (0.05 * state_after)
             )
             details.append({"action": action, "action_score": action_score, "state_before": current_eval.total_score, "state_after": state_after, "state_delta": state_delta, "position_score": state_delta, "lookahead_score": lookahead, "combined_score": combined, "summary": summary, "reason_flags": reason_flags})
+            if isinstance(action, ProposePlayerTrade):
+                details[-1]["trade_debug"] = self._score_notes.get(id(action), "")
             if best_score is None or combined > best_score:
                 best_score, best_actions = combined, [action]
             elif abs(combined - best_score) <= 1e-9:
@@ -86,10 +88,19 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
         meaningful_progress_found = False
         for action in actions:
             if isinstance(action, ProposePlayerTrade):
-                score = self._score_player_trade_proposal(action, state)
-                if score < self._params.player_trade_proposal_threshold:
+                v2_score = self._score_player_trade_proposal(action, state)
+                note = self._score_notes.get(id(action), "")
+                if v2_score <= -999999.0:
                     continue
-                trade_candidates.append((action, score))
+                lookahead_score, lookahead_flags = self._future_option_score(state, action)
+                if not self._trade_has_next_action_potential(note, lookahead_score):
+                    self._score_notes[id(action)] = (
+                        f"{note}; v2_trade_score={v2_score:+.2f}; v3_lookahead_trade_score={lookahead_score:+.2f}; "
+                        "rejected_reason=v3_no_next_action_potential"
+                    )
+                    continue
+                self._score_notes[id(action)] = f"{note}; v2_trade_score={v2_score:+.2f}; v3_lookahead_trade_score={lookahead_score:+.2f}; v3_flags={lookahead_flags}"
+                trade_candidates.append((action, v2_score + (0.3 * lookahead_score)))
                 meaningful_progress_found = True
                 continue
             if isinstance(action, BankTrade) and self._score_action(action, state) < self._params.trade_interest_threshold:
@@ -123,6 +134,32 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
         if not meaningful_progress_found:
             return pruned
         return [a for a in pruned if not isinstance(a, EndTurn)] or pruned
+
+    def _score_player_trade_proposal(self, action: ProposePlayerTrade, state: GameState | None) -> float:
+        v2_score = super()._score_player_trade_proposal(action, state)
+        if state is None:
+            return v2_score
+        note = self._score_notes.get(id(action), "")
+        if v2_score <= -999999.0:
+            self._score_notes[id(action)] = f"{note}; v2_trade_score={v2_score:+.2f}; v3_lookahead_trade_score=-1000000.00"
+            return -1_000_000.0
+        lookahead_score, flags = self._future_option_score(state, action)
+        if not self._trade_has_next_action_potential(note, lookahead_score):
+            self._score_notes[id(action)] = (
+                f"{note}; v2_trade_score={v2_score:+.2f}; v3_lookahead_trade_score={lookahead_score:+.2f}; "
+                "rejected_reason=v3_no_next_action_potential"
+            )
+            return -1_000_000.0
+        priority_bonus = 0.0
+        if "enables_city=True" in note:
+            priority_bonus += 35.0
+        if "enables_settlement=True" in note:
+            priority_bonus += 28.0
+        if "enables_dev=True" in note:
+            priority_bonus += 10.0
+        total = v2_score + (0.3 * lookahead_score) + priority_bonus
+        self._score_notes[id(action)] = f"{note}; v2_trade_score={v2_score:+.2f}; v3_lookahead_trade_score={lookahead_score:+.2f}; v3_flags={flags}"
+        return total
 
     def _road_target_gain(self, state: GameState, action: BuildRoad) -> tuple[float, list[str]]:
         before = self._roads_to_targets(state, action.player_id)
@@ -210,3 +247,18 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
             score -= self._params.v3_low_progress_penalty
             flags.append("low_progress_penalty")
         return score, flags
+    def _trade_has_next_action_potential(self, note: str, lookahead_score: float) -> bool:
+        enables_city = "enables_city=True" in note
+        enables_settlement = "enables_settlement=True" in note
+        enables_dev = "enables_dev=True" in note
+        if enables_city or enables_settlement or enables_dev:
+            return True
+        state_delta = 0.0
+        marker = "state_delta="
+        if marker in note:
+            try:
+                raw = note.split(marker, 1)[1].split(";", 1)[0]
+                state_delta = float(raw)
+            except Exception:
+                state_delta = 0.0
+        return state_delta > 0.05 and lookahead_score > 0.0
