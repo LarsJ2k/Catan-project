@@ -376,6 +376,8 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert "seat1_resources_earned_ore" in match_rows[0]
     assert "seat1_total_resources_in_hand" not in match_rows[0]
     assert "average_final_vp_total" in summary_rows[0]
+    assert "average_player_trades_proposed" in summary_rows[0]
+    assert "average_player_trades_completed" in summary_rows[0]
     assert "average_resources_earned_brick" in summary_rows[0]
     assert "average_resources_earned_ore" in summary_rows[0]
     match_csv_rows = _read_csv_rows(match_csv)
@@ -384,6 +386,8 @@ def test_export_json_and_excel(tmp_path: Path) -> None:
     assert len(summary_csv_rows) - 1 == len(result.aggregates)
     assert "match_id" in match_csv_rows[0]
     assert "average_final_vp_total" in summary_csv_rows[0]
+    assert "average_player_trades_proposed" in summary_csv_rows[0]
+    assert "average_player_trades_completed" in summary_csv_rows[0]
     payload = json_path.read_text(encoding="utf-8")
     assert "\"completed_games\"" in payload
     assert "\"stalled_games\"" in payload

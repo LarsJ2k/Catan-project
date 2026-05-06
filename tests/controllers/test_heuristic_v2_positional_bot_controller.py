@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from catan.controllers.heuristic_params import HeuristicScoringParams, default_family_parameters
 from catan.controllers.heuristic_v1_baseline_bot_controller import _TERRAIN_TO_RESOURCE
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
@@ -260,6 +262,53 @@ def test_v2_accepts_bank_trade_when_delta_gate_is_loose_and_trade_enables_city()
     trade = BankTrade(player_id=1, offer_resource=ResourceType.BRICK, request_resource=ResourceType.ORE, trade_rate=4)
     chosen = bot.choose_action(DebugObservation(state=state), [trade, EndTurn(player_id=1)])
     assert chosen == trade
+
+
+
+@pytest.mark.parametrize(
+    "hand,trade,should_outscore_end_turn",
+    [
+        (
+            {ResourceType.ORE: 2, ResourceType.GRAIN: 2, ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0},
+            ProposePlayerTrade(
+                player_id=1,
+                offered_resources=((ResourceType.BRICK, 1),),
+                requested_resources=((ResourceType.ORE, 1),),
+            ),
+            True,
+        ),
+        (
+            {ResourceType.BRICK: 0, ResourceType.LUMBER: 1, ResourceType.WOOL: 1, ResourceType.GRAIN: 1, ResourceType.ORE: 1},
+            ProposePlayerTrade(
+                player_id=1,
+                offered_resources=((ResourceType.ORE, 1),),
+                requested_resources=((ResourceType.BRICK, 1),),
+            ),
+            True,
+        ),
+        (
+            {ResourceType.BRICK: 1, ResourceType.LUMBER: 1, ResourceType.WOOL: 0, ResourceType.GRAIN: 0, ResourceType.ORE: 0},
+            ProposePlayerTrade(
+                player_id=1,
+                offered_resources=((ResourceType.BRICK, 1),),
+                requested_resources=((ResourceType.WOOL, 1),),
+            ),
+            False,
+        ),
+    ],
+)
+def test_v2_player_trade_score_vs_end_turn_across_hands(hand: dict[ResourceType, int], trade: ProposePlayerTrade, should_outscore_end_turn: bool) -> None:
+    state = _state(170)
+    state.players[1].resources = hand
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+
+    trade_score = bot._score_action(trade, state)
+    end_turn_score = bot._score_action(EndTurn(player_id=1), state)
+
+    if should_outscore_end_turn:
+        assert trade_score > end_turn_score
+    else:
+        assert trade_score < end_turn_score
 
 def test_v2_can_initiate_player_trade_that_enables_city() -> None:
     state = _state(160)
