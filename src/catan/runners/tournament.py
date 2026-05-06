@@ -148,6 +148,7 @@ class BotAggregate:
     average_bank_trades_count: float
     average_player_trades_proposed: float
     average_player_trades_completed: float
+    average_total_trades_initiated: float
     average_total_resources_count: float
     average_resources_earned_brick: float
     average_resources_earned_lumber: float
@@ -489,6 +490,7 @@ def aggregate_results(matches: tuple[MatchResult, ...]) -> dict[str, BotAggregat
             if games
             else 0.0,
             average_player_trades_completed=float(mean(seat.player_trades_completed for _, _, seat in entries)) if games else 0.0,
+            average_total_trades_initiated=float(mean(seat.bank_trades_count + seat.player_trades_proposed for _, _, seat in entries)) if games else 0.0,
             average_total_resources_count=float(mean(seat.total_resources_earned for _, _, seat in entries))
             if games
             else 0.0,
@@ -599,6 +601,7 @@ def export_tournament_result(result: TournamentResult) -> tuple[Path | None, Pat
                     "average_bank_trades_count": agg.average_bank_trades_count,
                     "average_player_trades_proposed": agg.average_player_trades_proposed,
                     "average_player_trades_completed": agg.average_player_trades_completed,
+                    "average_total_trades_initiated": agg.average_total_trades_initiated,
                     "average_total_resources_count": agg.average_total_resources_count,
                     "average_resources_earned_brick": agg.average_resources_earned_brick,
                     "average_resources_earned_lumber": agg.average_resources_earned_lumber,
@@ -777,6 +780,7 @@ def _summary_csv_headers() -> list[str]:
         "average_bank_trades_count",
         "average_player_trades_proposed",
         "average_player_trades_completed",
+        "average_total_trades_initiated",
         "average_total_resources_count",
         "average_resources_earned_brick",
         "average_resources_earned_lumber",
@@ -820,6 +824,7 @@ def _summary_csv_row(aggregate: BotAggregate) -> list[str | int | float]:
         aggregate.average_bank_trades_count,
         aggregate.average_player_trades_proposed,
         aggregate.average_player_trades_completed,
+        aggregate.average_total_trades_initiated,
         aggregate.average_total_resources_count,
         aggregate.average_resources_earned_brick,
         aggregate.average_resources_earned_lumber,
