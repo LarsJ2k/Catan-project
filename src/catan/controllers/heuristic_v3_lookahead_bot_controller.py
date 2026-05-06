@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import sleep
 from typing import Any, Sequence
 
 from catan.controllers.heuristic_v1_baseline_bot_controller import _CITY_COST, _DEV_COST, _SETTLEMENT_COST
@@ -25,6 +26,8 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
     """Limited-depth lookahead bot built on top of v2 positional heuristics."""
 
     def choose_action(self, observation: Observation, legal_actions: Sequence[Action]) -> Action:
+        if self._enable_delay and self._delay_seconds > 0:
+            sleep(self._delay_seconds)
         state = observation.state if isinstance(observation, DebugObservation) else None
         if len(legal_actions) <= 1:
             only_action = legal_actions[0]

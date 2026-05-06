@@ -151,3 +151,17 @@ def test_v3_trade_debug_output_includes_scoring_fields() -> None:
     assert "enables_city=" in trade_debug
     assert "enables_settlement=" in trade_debug
     assert "enables_dev=" in trade_debug
+
+
+def test_v3_honors_turn_delay_setting(monkeypatch) -> None:
+    state = _state()
+    legal_actions = tuple(get_legal_actions(state, 1))
+    calls: list[float] = []
+
+    def fake_sleep(delay: float) -> None:
+        calls.append(delay)
+
+    monkeypatch.setattr("catan.controllers.heuristic_v3_lookahead_bot_controller.sleep", fake_sleep)
+    HeuristicV3LookaheadBotController(seed=1, delay_seconds=0.35, enable_delay=True).choose_action(DebugObservation(state=state), legal_actions)
+
+    assert calls == [0.35]
