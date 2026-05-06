@@ -82,6 +82,7 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
     def _prune_candidates(self, state: GameState, actions: list[Action]) -> list[Action]:
         pruned: list[Action] = []
         trade_candidates: list[tuple[ProposePlayerTrade, float]] = []
+        road_candidates: list[tuple[BuildRoad, float, list[str]]] = []
         meaningful_progress_found = False
         for action in actions:
             if isinstance(action, ProposePlayerTrade):
@@ -97,9 +98,11 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
                 road_gain, road_flags = self._road_target_gain(state, action)
                 if road_gain <= 0:
                     continue
-                if "target_far_or_weak" in road_flags:
-                    continue
-                meaningful_progress_found = True
+                road_candidates.append((action, road_gain, road_flags))
+                if "target_far_or_weak" not in road_flags:
+                    pruned.append(action)
+                    meaningful_progress_found = True
+                continue
             if isinstance(action, (BuildSettlement, BuildCity)):
 
                 meaningful_progress_found = True
@@ -109,6 +112,10 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
                 if city_missing <= 1:
                     continue
             pruned.append(action)
+
+        if road_candidates and not any(isinstance(a, BuildRoad) for a in pruned):
+            best_road = max(road_candidates, key=lambda item: item[1])[0]
+            pruned.append(best_road)
 
         trade_candidates.sort(key=lambda item: item[1], reverse=True)
         for action, _ in trade_candidates[:2]:
