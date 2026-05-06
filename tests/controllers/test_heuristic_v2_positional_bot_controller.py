@@ -22,7 +22,7 @@ def _state(seed: int = 100) -> object:
     return state
 
 
-def test_v2_only_selects_legal_actions_and_never_initiates_trade() -> None:
+def test_v2_only_selects_legal_actions() -> None:
     bot = HeuristicV2PositionalBotController(seed=4, enable_delay=False)
     legal = [
         ProposePlayerTrade(
@@ -36,7 +36,6 @@ def test_v2_only_selects_legal_actions_and_never_initiates_trade() -> None:
     for _ in range(12):
         chosen = bot.choose_action(observation=None, legal_actions=legal)  # type: ignore[arg-type]
         assert chosen in legal
-        assert not isinstance(chosen, ProposePlayerTrade)
 
 
 def test_v2_candidate_evaluation_does_not_mutate_real_state() -> None:
@@ -261,3 +260,50 @@ def test_v2_accepts_bank_trade_when_delta_gate_is_loose_and_trade_enables_city()
     trade = BankTrade(player_id=1, offer_resource=ResourceType.BRICK, request_resource=ResourceType.ORE, trade_rate=4)
     chosen = bot.choose_action(DebugObservation(state=state), [trade, EndTurn(player_id=1)])
     assert chosen == trade
+
+def test_v2_can_initiate_player_trade_that_enables_city() -> None:
+    state = _state(160)
+    state.players[1].resources = {ResourceType.ORE: 2, ResourceType.GRAIN: 2, ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0}
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.BRICK, 1),), requested_resources=((ResourceType.ORE, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, ProposePlayerTrade)
+
+
+def test_v2_can_initiate_player_trade_that_enables_settlement() -> None:
+    state = _state(161)
+    state.players[1].resources = {ResourceType.BRICK: 0, ResourceType.LUMBER: 1, ResourceType.WOOL: 1, ResourceType.GRAIN: 1, ResourceType.ORE: 1}
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.ORE, 1),), requested_resources=((ResourceType.BRICK, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, ProposePlayerTrade)
+
+
+def test_v2_does_not_initiate_trade_without_concrete_benefit() -> None:
+    state = _state(162)
+    state.players[1].resources = {ResourceType.BRICK: 1, ResourceType.LUMBER: 1, ResourceType.WOOL: 0, ResourceType.GRAIN: 0, ResourceType.ORE: 0}
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.BRICK, 1),), requested_resources=((ResourceType.WOOL, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, EndTurn)
+
+
+def test_v2_does_not_trade_away_goal_critical_resources() -> None:
+    state = _state(163)
+    state.players[1].resources = {ResourceType.ORE: 3, ResourceType.GRAIN: 2, ResourceType.BRICK: 0, ResourceType.LUMBER: 0, ResourceType.WOOL: 0}
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+    legal = [
+        ProposePlayerTrade(player_id=1, offered_resources=((ResourceType.ORE, 1),), requested_resources=((ResourceType.BRICK, 1),)),
+        EndTurn(player_id=1),
+    ]
+    chosen = bot.choose_action(DebugObservation(state=state), legal)
+    assert isinstance(chosen, EndTurn)

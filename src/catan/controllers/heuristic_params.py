@@ -218,7 +218,17 @@ def default_family_parameters(controller_type: ControllerType) -> dict[str, floa
         )
         return {**params.as_dict()}
     if controller_type == ControllerType.HEURISTIC_V2_POSITIONAL:
-        return {**HeuristicScoringParams().as_dict()}
+        params = HeuristicScoringParams(
+            max_bot_trade_proposals_per_turn=1,
+            player_trade_proposal_threshold=6.0,
+            player_trade_enable_settlement_bonus=30.0,
+            player_trade_enable_city_bonus=40.0,
+            player_trade_enable_dev_bonus=14.0,
+            player_trade_scarce_resource_bonus=12.0,
+            player_trade_critical_giveaway_penalty=20.0,
+            player_trade_leader_penalty=22.0,
+        )
+        return {**params.as_dict()}
     if controller_type == ControllerType.HEURISTIC_V3_LOOKAHEAD:
         return {**HeuristicScoringParams().as_dict()}
     return {}

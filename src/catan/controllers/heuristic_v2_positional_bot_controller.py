@@ -4,6 +4,7 @@ from time import perf_counter, sleep
 from typing import Any, Sequence
 
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
+from catan.controllers.heuristic_v1_baseline_bot_controller import _CITY_COST, _DEV_COST, _SETTLEMENT_COST
 from catan.controllers.heuristic_v2_position_evaluator import HeuristicV2PositionEvaluator
 from catan.controllers.heuristic_v2_profiling import GLOBAL_V2_PROFILING_STATS, V2DecisionProfile
 from catan.core.engine import apply_action
@@ -181,6 +182,11 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         profile = V2DecisionProfile()
         candidate_start = perf_counter()
         player_id = action.player_id
+        if isinstance(action, ProposePlayerTrade):
+            note = self._score_notes.get(id(action), "")
+            if "rejected_reason=" in note and not note.endswith("rejected_reason=none"):
+                profile.candidate_simulation_time_s = perf_counter() - candidate_start
+                return -1_000_000.0, "rejected trade candidate", profile
         if self._is_stochastic_action(action):
             eval_start = perf_counter()
             current_eval = self._evaluator.evaluate(state, player_id, self._params)
@@ -224,6 +230,72 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             profile.candidate_simulation_time_s = perf_counter() - candidate_start
             return -1_000_000.0, "simulation failed", profile
 
+
+
+    def _score_player_trade_proposal(self, action: ProposePlayerTrade, state: GameState | None) -> float:
+        base_score = super()._score_player_trade_proposal(action, state)
+        if state is None:
+            return base_score
+        offered = dict(action.offered_resources)
+        requested = dict(action.requested_resources)
+        player = state.players[action.player_id]
+        before = dict(player.resources)
+        after = dict(before)
+        for resource, amount in offered.items():
+            after[resource] = after.get(resource, 0) - amount
+        for resource, amount in requested.items():
+            after[resource] = after.get(resource, 0) + amount
+
+        enables_city = self._can_afford(after, _CITY_COST)
+        enables_settlement = self._can_afford(after, _SETTLEMENT_COST)
+        enables_dev = self._can_afford(after, _DEV_COST)
+        city_missing_after = self._missing_resources(after, _CITY_COST)
+        settlement_missing_after = self._missing_resources(after, _SETTLEMENT_COST)
+
+        roads_progress = False
+        if city_missing_after > 1 and settlement_missing_after > 1:
+            before_targets = self._roads_to_targets(state, action.player_id)
+            after_targets = self._roads_to_targets(state, action.player_id)
+            roads_progress = self._score_road_progress(state, before_targets, after_targets) > 0
+
+        progress_gated = enables_city or enables_settlement or (enables_dev and city_missing_after > 1 and settlement_missing_after > 1) or roads_progress
+        if not progress_gated:
+            self._score_notes[id(action)] = (
+                f"trade_shape={sum(offered.values())}for{sum(requested.values())}; offer={offered}; request={requested}; "
+                "enables_city=False; enables_settlement=False; enables_dev=False; state_delta=0.00; rejected_reason=no_concrete_progress"
+            )
+            return -1_000_000.0
+
+        state_delta = 0.0
+        try:
+            simulated = self._clone_state_for_simulation(state)
+            simulated.players[action.player_id].resources = dict(after)
+            before_eval = self._evaluator.evaluate(state, action.player_id, self._params).total_score
+            after_eval = self._evaluator.evaluate(simulated, action.player_id, self._params).total_score
+            state_delta = after_eval - before_eval
+        except Exception:
+            state_delta = 0.0
+
+        delta_bonus = state_delta * 2.5
+        if state_delta <= 0:
+            delta_bonus -= 8.0
+
+        v2_bonus = (
+            (self._params.player_trade_enable_city_bonus if enables_city else 0.0)
+            + (self._params.player_trade_enable_settlement_bonus if enables_settlement else 0.0)
+            + (self._params.player_trade_enable_dev_bonus if enables_dev and city_missing_after > 1 and settlement_missing_after > 1 else 0.0)
+            + delta_bonus
+        )
+        score = base_score + v2_bonus
+        rejected_reason = "" if score >= self._params.player_trade_proposal_threshold else "below_threshold"
+        self._score_notes[id(action)] = (
+            f"trade_shape={sum(offered.values())}for{sum(requested.values())}; offer={offered}; request={requested}; "
+            f"enables_city={enables_city}; enables_settlement={enables_settlement}; enables_dev={enables_dev}; "
+            f"state_delta={state_delta:+.2f}; rejected_reason={rejected_reason or 'none'}"
+        )
+        if score < self._params.player_trade_proposal_threshold:
+            return -1_000_000.0
+        return score
     def _clone_state_for_simulation(self, state: GameState) -> GameState:
         return GameState(
             board=state.board,
