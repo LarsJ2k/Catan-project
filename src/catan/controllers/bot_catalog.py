@@ -403,7 +403,10 @@ def build_bot_controller_from_bot_definition(
             enable_delay=enable_bot_delay,
             heuristic_params=HeuristicScoringParams.from_mapping(parameters),
         )
-    if definition.base_controller_type == ControllerType.HEURISTIC_V2_POSITIONAL:
+    if definition.base_controller_type in (
+        ControllerType.HEURISTIC_V2_POSITIONAL,
+        ControllerType.HEURISTIC_V2_1_STRATEGIC,
+    ):
         return HeuristicV2PositionalBotController(
             seed=seed,
             delay_seconds=delay_seconds,
