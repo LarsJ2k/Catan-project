@@ -36,6 +36,7 @@ class DrawnUi:
     dev_card_rects: dict[DevelopmentCardType, object]
     event_log_scroll_up_rect: object | None
     event_log_scroll_down_rect: object | None
+    event_log_toggle_rect: object | None
     speed_button_rects: dict[float, object]
     game_over_menu_button_rect: object | None
     game_over_view_board_button_rect: object | None
@@ -200,6 +201,7 @@ class PygameRenderer:
             dev_card_rects=dev_card_rects,
             event_log_scroll_up_rect=scroll_up_rect,
             event_log_scroll_down_rect=scroll_down_rect,
+            event_log_toggle_rect=(spectator_data or {}).get("event_log_toggle_rect"),
             speed_button_rects=speed_button_rects,
             game_over_menu_button_rect=game_over_menu_button_rect,
             game_over_view_board_button_rect=game_over_view_board_button_rect,
@@ -325,8 +327,15 @@ class PygameRenderer:
         self.pg.draw.rect(screen, (60, 60, 70), down_rect, border_radius=3)
         self._draw_triangle_icon(screen, up_rect, direction="up", color=(230, 230, 230))
         self._draw_triangle_icon(screen, down_rect, direction="down", color=(230, 230, 230))
+        compact_log = bool((spectator_data or {}).get("compact_event_log", False))
+        toggle_rect = self.pg.Rect(panel_x + panel_width - 60, y - 2, 52, 20)
+        self.pg.draw.rect(screen, (86, 112, 150) if compact_log else (60, 60, 70), toggle_rect, border_radius=3)
+        toggle_label = "Uit" if compact_log else "In"
+        screen.blit(self.small_font.render(toggle_label, True, (240, 240, 240)), (toggle_rect.x + 15, toggle_rect.y + 4))
+        if isinstance(spectator_data, dict):
+            spectator_data["event_log_toggle_rect"] = toggle_rect
         y += 24
-        event_end = int(height * 0.34)
+        event_end = int(height * (0.22 if compact_log else 0.34))
         log_line_height = 16
         visible = max((event_end - y) // log_line_height, 5)
         max_offset = max(len(event_log) - visible, 0)
@@ -471,18 +480,21 @@ class PygameRenderer:
 
             line_y = row_rect.y + 5
             text_max_width = row_rect.width - text_start_x - text_right_pad
-            for history_idx, history in enumerate(histories[:2]):
+            max_history = 2
+            available_lines = max((row_rect.height - 10) // text_line_h, 2)
+            lines_per_history = max(1, available_lines // max_history)
+            choices_per_history = max(1, min(4, lines_per_history))
+            for history_idx, history in enumerate(histories[:max_history]):
                 if not isinstance(history, dict):
                     continue
                 prefix = f"K{history_idx + 1}"
                 candidate_lines = history.get("candidate_lines", [])
                 if isinstance(candidate_lines, list) and candidate_lines:
-                    top_line = _fit_line(f"{prefix} 1) {str(candidate_lines[0])}", text_max_width)
-                    screen.blit(self.small_font.render(top_line, True, (215, 215, 220)), (row_rect.x + text_start_x, line_y))
-                    line_y += text_line_h
-                    if len(candidate_lines) > 1:
-                        second_line = _fit_line(f"{prefix} 2) {str(candidate_lines[1])}", text_max_width)
-                        screen.blit(self.small_font.render(second_line, True, (195, 195, 202)), (row_rect.x + text_start_x, line_y))
+                    visible_candidates = candidate_lines[:choices_per_history]
+                    for candidate_idx, candidate_line in enumerate(visible_candidates):
+                        color = (215, 215, 220) if candidate_idx == 0 else (195, 195, 202)
+                        line = _fit_line(f"{prefix} {candidate_idx + 1}) {str(candidate_line)}", text_max_width)
+                        screen.blit(self.small_font.render(line, True, color), (row_rect.x + text_start_x, line_y))
                         line_y += text_line_h
                 else:
                     fallback = history.get("fallback_message", "Geen kandidaatdata")

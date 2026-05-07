@@ -1131,6 +1131,7 @@ class PygameApp:
         settings_delay_error: str | None = None
         spectator_mode = self._is_spectator_mode(state, controllers)
         spectator_speed = 1.0
+        compact_event_log = False
         base_bot_delay = self._current_bot_delay_seconds(controllers)
         spectator_decision_history: dict[int, list[dict[str, object]]] = {
             pid: [] for pid in sorted(state.players.keys())
@@ -1236,6 +1237,7 @@ class PygameApp:
                 spectator_data={
                     "player_decisions": spectator_decision_history,
                     "speed": spectator_speed,
+                    "compact_event_log": compact_event_log,
                     "player_bot_names": {
                         player_id: self._spectator_bot_name(controller)
                         for player_id, controller in controllers.items()
@@ -1338,6 +1340,9 @@ class PygameApp:
                         continue
                     if drawn.event_log_scroll_down_rect is not None and drawn.event_log_scroll_down_rect.collidepoint(event.pos):
                         event_log_offset = max(event_log_offset - 1, 0)
+                        continue
+                    if drawn.event_log_toggle_rect is not None and drawn.event_log_toggle_rect.collidepoint(event.pos):
+                        compact_event_log = not compact_event_log
                         continue
                     if discard_ui is not None:
                         discard_action = self._handle_discard_overlay_click(event.pos, discard_ui, state, active_player, discard_selection)
@@ -1511,7 +1516,7 @@ class PygameApp:
         top_candidates = payload.get("top_candidates")
         if isinstance(top_candidates, list):
             formatted: list[str] = []
-            for candidate in top_candidates[:3]:
+            for candidate in top_candidates[:4]:
                 if isinstance(candidate, tuple) and len(candidate) == 2:
                     action, score = candidate
                     if not isinstance(score, (int, float)):
