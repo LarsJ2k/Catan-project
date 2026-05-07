@@ -335,7 +335,7 @@ class PygameRenderer:
         if isinstance(spectator_data, dict):
             spectator_data["event_log_toggle_rect"] = toggle_rect
         y += 24
-        event_end = int(height * (0.22 if compact_log else 0.34))
+        event_end = int(height * (0.18 if compact_log else 0.34))
         log_line_height = 16
         visible = max((event_end - y) // log_line_height, 5)
         max_offset = max(len(event_log) - visible, 0)
@@ -480,25 +480,21 @@ class PygameRenderer:
 
             line_y = row_rect.y + 5
             text_max_width = row_rect.width - text_start_x - text_right_pad
-            max_history = 2
-            available_lines = max((row_rect.height - 10) // text_line_h, 2)
-            lines_per_history = max(1, available_lines // max_history)
-            choices_per_history = max(1, min(4, lines_per_history))
-            for history_idx, history in enumerate(histories[:max_history]):
-                if not isinstance(history, dict):
-                    continue
-                prefix = f"K{history_idx + 1}"
-                candidate_lines = history.get("candidate_lines", [])
+            compact_log = bool((spectator_data or {}).get("compact_event_log", False))
+            choices_per_turn = 8 if compact_log else 4
+            latest_history = histories[0] if histories else {}
+            if isinstance(latest_history, dict):
+                candidate_lines = latest_history.get("candidate_lines", [])
                 if isinstance(candidate_lines, list) and candidate_lines:
-                    visible_candidates = candidate_lines[:choices_per_history]
+                    visible_candidates = candidate_lines[:choices_per_turn]
                     for candidate_idx, candidate_line in enumerate(visible_candidates):
                         color = (215, 215, 220) if candidate_idx == 0 else (195, 195, 202)
-                        line = _fit_line(f"{prefix} {candidate_idx + 1}) {str(candidate_line)}", text_max_width)
+                        line = _fit_line(f"K {candidate_idx + 1}) {str(candidate_line)}", text_max_width)
                         screen.blit(self.small_font.render(line, True, color), (row_rect.x + text_start_x, line_y))
                         line_y += text_line_h
                 else:
-                    fallback = history.get("fallback_message", "Geen kandidaatdata")
-                    fallback_line = _fit_line(f"{prefix} {str(fallback)}", text_max_width)
+                    fallback = latest_history.get("fallback_message", "Geen kandidaatdata")
+                    fallback_line = _fit_line(f"K {str(fallback)}", text_max_width)
                     screen.blit(self.small_font.render(fallback_line, True, (190, 190, 198)), (row_rect.x + text_start_x, line_y))
                     line_y += text_line_h
 
