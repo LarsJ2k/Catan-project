@@ -133,7 +133,7 @@ class PygameRenderer:
             state, legal_actions, build_mode=build_mode
         )
         width, height = screen.get_size()
-        panel_width = max(int(width * 0.24), 320)
+        panel_width = max(int(width * (0.36 if spectator_mode else 0.24)), 320)
         bottom_bar_height = max(int(height * (0.24 if spectator_mode else 0.18)), 118)
         panel_x = width - panel_width
 
