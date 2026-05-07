@@ -14,6 +14,7 @@ from catan.controllers.heuristic_bot_controller import HeuristicBotController
 from catan.controllers.heuristic_v1_baseline_bot_controller import HeuristicV1BaselineBotController
 from catan.controllers.heuristic_v1_1_bot_controller import HeuristicV1_1BotController
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
+from catan.controllers.heuristic_v2_1_strategic_bot_controller import HeuristicV2_1StrategicBotController
 from catan.controllers.heuristic_v3_lookahead_bot_controller import HeuristicV3LookaheadBotController
 from catan.runners.game_setup import ControllerType
 
@@ -65,6 +66,9 @@ def _heuristic_v2_positional_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicV2PositionalBotController(enable_delay=enable_bot_delay)
 
 
+def _heuristic_v2_1_strategic_factory(enable_bot_delay: bool) -> Controller:
+    return HeuristicV2_1StrategicBotController(enable_delay=enable_bot_delay)
+
 def _heuristic_v3_lookahead_factory(enable_bot_delay: bool) -> Controller:
     return HeuristicV3LookaheadBotController(enable_delay=enable_bot_delay)
 
@@ -111,6 +115,12 @@ _CONTROLLER_SPECS: tuple[ControllerSpec, ...] = (
         label="Heuristic v2 Positional",
         is_bot=True,
         factory=_heuristic_v2_positional_factory,
+    ),
+    ControllerSpec(
+        controller_type=ControllerType.HEURISTIC_V2_1_STRATEGIC,
+        label="Heuristic v2.1 Strategic",
+        is_bot=True,
+        factory=_heuristic_v2_1_strategic_factory,
     ),
     ControllerSpec(
         controller_type=ControllerType.HEURISTIC_V3_LOOKAHEAD,
@@ -179,6 +189,14 @@ _BUILTIN_BOTS: tuple[BotDefinition, ...] = (
         base_controller_type=ControllerType.HEURISTIC_V2_POSITIONAL,
         description="Candidate-shortlist + simulated resulting-position evaluation.",
         parameters=default_family_parameters(ControllerType.HEURISTIC_V2_POSITIONAL),
+        is_builtin=True,
+    ),
+    BotDefinition(
+        bot_id="heuristic_v2_1_strategic",
+        display_name="Heuristic v2.1 Strategic",
+        base_controller_type=ControllerType.HEURISTIC_V2_1_STRATEGIC,
+        description="v2 positional + strategic phase/profile/distance scoring.",
+        parameters=default_family_parameters(ControllerType.HEURISTIC_V2_1_STRATEGIC),
         is_builtin=True,
     ),
     BotDefinition(

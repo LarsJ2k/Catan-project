@@ -4,6 +4,7 @@ from time import sleep
 from typing import Any, Sequence
 
 from catan.controllers.heuristic_v1_baseline_bot_controller import _CITY_COST, _DEV_COST, _SETTLEMENT_COST
+from catan.controllers.heuristic_strategic_helpers import classify_game_phase, detect_bottlenecks, estimate_distances, forced_candidates
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
 from catan.core.engine import apply_action
 from catan.core.models.action import (
@@ -48,12 +49,16 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
             self._last_decision = {"kind": "heuristic_v3_lookahead", "chosen_action": chosen, "top_candidates": [{"action": chosen, "action_score": 25.0, "position_score": 0.0, "lookahead_score": 0.0, "combined_score": 25.0, "summary": "discard policy"}], "legal_action_count": len(legal_actions)}
             return chosen
         scored = [(a, self._score_action(a, state)) for a in candidates]
+        shortlisted_actions = forced_candidates(self, state, candidates, scored, max(1, int(self._params.v3_candidate_count)))
         scored.sort(key=lambda item: item[1], reverse=True)
-        shortlisted = scored[: max(1, int(self._params.v3_candidate_count))]
+        shortlisted = [(a,s) for a,s in scored if a in shortlisted_actions]
         normalized = self._normalize_action_scores(shortlisted)
 
         current_player = state.turn.current_player if state.turn else shortlisted[0][0].player_id
         current_eval = self._evaluator.evaluate(state, current_player, self._params)
+        phase = classify_game_phase(state, current_player)
+        profile = detect_bottlenecks(self, state, current_player)
+        distances = estimate_distances(self, state, current_player)
 
         details: list[dict[str, Any]] = []
         best_score: float | None = None
@@ -65,13 +70,19 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
             lookahead, reason_flags = self._future_option_score(state, action)
             if idx >= max_lookahead:
                 lookahead = state_delta
+            strategic_bias = (12.0 / (1 + distances["city"])) + (10.0 / (1 + distances["settlement"]))
+            if phase.value == "LATE":
+                strategic_bias += 8.0 / (1 + distances["city"])
+            if profile.road_overbuilt and isinstance(action, BuildRoad):
+                lookahead -= 10.0
             combined = (
                 self._params.v3_action_score_weight * normalized[action]
                 + self._params.v3_immediate_state_weight * state_delta
                 + self._params.v3_lookahead_weight * lookahead
                 + (0.05 * state_after)
+                + strategic_bias
             )
-            details.append({"action": action, "action_score": action_score, "state_before": current_eval.total_score, "state_after": state_after, "state_delta": state_delta, "position_score": state_delta, "lookahead_score": lookahead, "combined_score": combined, "summary": summary, "reason_flags": reason_flags})
+            details.append({"action": action, "action_score": action_score, "state_before": current_eval.total_score, "state_after": state_after, "state_delta": state_delta, "position_score": state_delta, "lookahead_score": lookahead, "strategic_goal_score": strategic_bias, "game_phase": phase.value, "bottlenecks": profile.__dict__, "turns_to_build": distances, "combined_score": combined, "summary": summary, "reason_flags": reason_flags})
             if isinstance(action, ProposePlayerTrade):
                 details[-1]["trade_debug"] = self._score_notes.get(id(action), "")
             if best_score is None or combined > best_score:

@@ -229,6 +229,8 @@ def default_family_parameters(controller_type: ControllerType) -> dict[str, floa
             player_trade_leader_penalty=16.0,
         )
         return {**params.as_dict()}
+    if controller_type == ControllerType.HEURISTIC_V2_1_STRATEGIC:
+        return default_family_parameters(ControllerType.HEURISTIC_V2_POSITIONAL)
     if controller_type == ControllerType.HEURISTIC_V3_LOOKAHEAD:
         return {**HeuristicScoringParams().as_dict()}
     return {}
