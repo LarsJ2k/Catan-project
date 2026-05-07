@@ -328,7 +328,7 @@ class PygameRenderer:
         self._draw_triangle_icon(screen, up_rect, direction="up", color=(230, 230, 230))
         self._draw_triangle_icon(screen, down_rect, direction="down", color=(230, 230, 230))
         compact_log = bool((spectator_data or {}).get("compact_event_log", False))
-        toggle_rect = self.pg.Rect(panel_x + panel_width - 104, y - 2, 96, 20)
+        toggle_rect = self.pg.Rect(panel_x + panel_width - 210, y - 2, 96, 20)
         self.pg.draw.rect(screen, (86, 112, 150) if compact_log else (60, 60, 70), toggle_rect, border_radius=3)
         toggle_label = "Uitklappen" if compact_log else "Inklappen"
         screen.blit(self.small_font.render(toggle_label, True, (240, 240, 240)), (toggle_rect.x + 8, toggle_rect.y + 4))

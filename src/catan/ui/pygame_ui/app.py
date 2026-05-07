@@ -1334,7 +1334,7 @@ class PygameApp:
                 active_controller = controllers[active_player]
                 is_human = isinstance(active_controller, HumanController)
 
-                if is_human and event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
+                if event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                     if drawn.event_log_scroll_up_rect is not None and drawn.event_log_scroll_up_rect.collidepoint(event.pos):
                         event_log_offset += 1
                         continue
@@ -1344,6 +1344,8 @@ class PygameApp:
                     if drawn.event_log_toggle_rect is not None and drawn.event_log_toggle_rect.collidepoint(event.pos):
                         compact_event_log = not compact_event_log
                         continue
+
+                if is_human and event.type == self.pg.MOUSEBUTTONDOWN and event.button == 1:
                     if discard_ui is not None:
                         discard_action = self._handle_discard_overlay_click(event.pos, discard_ui, state, active_player, discard_selection)
                         if discard_action is not None:
