@@ -19,6 +19,7 @@ from catan.core.models.action import (
     RollDice,
     StealResource,
 )
+from catan.core.models.enums import TurnStep
 from catan.core.models.state import GameState
 from catan.core.models.state import PlacedPieces, PlayerState, SetupState, TurnState
 from catan.core.observer import DebugObservation, Observation
@@ -48,6 +49,14 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         prep_start = perf_counter()
         filter_start = perf_counter()
         candidates = list(legal_actions)
+        trade_debug: dict[str, Any] = {
+            "generated": 0,
+            "after_basic_checks": 0,
+            "rejected": {},
+            "best_score": None,
+            "best_summary": None,
+            "best_in_shortlist": False,
+        }
         profile.filter_forbidden_time_s = perf_counter() - filter_start
         if not candidates:
             fallback = legal_actions[self._rng.randrange(len(legal_actions))]
@@ -70,6 +79,12 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             profile.legal_action_count = len(candidates)
             self._record_profile(profile, decision_start)
             return chosen
+        if state.turn is not None and state.turn.step == TurnStep.ACTIONS and state.player_trade is None:
+            generated_trades = self._candidate_player_trades(state, legal_actions)
+            trade_debug["generated"] = len(generated_trades)
+            candidates.extend(generated_trades)
+            trade_debug["after_basic_checks"] = len(generated_trades)
+
         discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
         if discard_placeholder is not None:
             chosen = self._choose_discard_action(state, discard_placeholder.player_id)
@@ -87,6 +102,7 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
                     }
                 ],
                 "legal_action_count": len(candidates),
+                "player_trade_debug": trade_debug,
             }
             profile.legal_action_count = len(candidates)
             profile.trivial_or_forced = True
@@ -101,6 +117,13 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         topn_start = perf_counter()
         action_scored.sort(key=lambda item: item[1], reverse=True)
         shortlisted = action_scored[:candidate_count]
+        best_player_trade = next((item for item in action_scored if isinstance(item[0], ProposePlayerTrade)), None)
+        if best_player_trade is not None:
+            trade_debug["best_score"] = best_player_trade[1]
+            trade_debug["best_summary"] = self._score_notes.get(id(best_player_trade[0]))
+            if best_player_trade[1] >= self._params.player_trade_proposal_threshold and best_player_trade[0] not in [a for a, _ in shortlisted]:
+                shortlisted.append(best_player_trade)
+        trade_debug["best_in_shortlist"] = any(isinstance(action, ProposePlayerTrade) for action, _ in shortlisted)
         normalized = self._normalize_action_scores(shortlisted)
         profile.topn_selection_time_s = perf_counter() - topn_start
         profile.legal_prep_time_s = perf_counter() - prep_start
@@ -153,6 +176,7 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             "chosen_action": chosen,
             "top_candidates": ranked_details[:3],
             "legal_action_count": len(candidates),
+            "player_trade_debug": trade_debug,
         }
         self._record_profile(profile, decision_start)
         return chosen
@@ -266,6 +290,16 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
             )
             return -1_000_000.0
 
+        expected_value = 0.0
+        if enables_city:
+            expected_value += self._params.player_trade_enable_city_bonus
+        if enables_settlement:
+            expected_value += self._params.player_trade_enable_settlement_bonus
+        if enables_dev and city_missing_after > 1 and settlement_missing_after > 1:
+            expected_value += self._params.player_trade_enable_dev_bonus
+        if expected_value <= 0:
+            expected_value -= 6.0
+
         state_delta = 0.0
         try:
             simulated = self._clone_state_for_simulation(state)
@@ -276,16 +310,8 @@ class HeuristicV2PositionalBotController(HeuristicV1_1BotController):
         except Exception:
             state_delta = 0.0
 
-        delta_bonus = state_delta * 2.5
-        if state_delta <= 0:
-            delta_bonus -= 8.0
-
-        v2_bonus = (
-            (self._params.player_trade_enable_city_bonus if enables_city else 0.0)
-            + (self._params.player_trade_enable_settlement_bonus if enables_settlement else 0.0)
-            + (self._params.player_trade_enable_dev_bonus if enables_dev and city_missing_after > 1 and settlement_missing_after > 1 else 0.0)
-            + delta_bonus
-        )
+        acceptability = 0.7 if any(p.resources.get(next(iter(requested.keys())), 0) > 0 for pid, p in state.players.items() if pid != action.player_id) else 0.35
+        v2_bonus = expected_value * acceptability + (state_delta * 1.5)
         score = base_score + v2_bonus
         rejected_reason = "" if score >= self._params.player_trade_proposal_threshold else "below_threshold"
         self._score_notes[id(action)] = (

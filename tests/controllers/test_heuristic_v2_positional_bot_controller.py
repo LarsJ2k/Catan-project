@@ -356,3 +356,32 @@ def test_v2_does_not_trade_away_goal_critical_resources() -> None:
     ]
     chosen = bot.choose_action(DebugObservation(state=state), legal)
     assert isinstance(chosen, EndTurn)
+
+def test_v2_generates_player_trade_candidates_for_city_enable_path() -> None:
+    state = _state(180)
+    state.players[1].resources = {ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0, ResourceType.GRAIN: 2, ResourceType.ORE: 2}
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+    generated = bot._candidate_player_trades(state, [EndTurn(player_id=1)])
+    assert any(t.requested_resources == ((ResourceType.ORE, 1),) for t in generated)
+
+
+def test_v2_forces_best_player_trade_into_shortlist_when_above_threshold() -> None:
+    state = _state(181)
+    params = HeuristicScoringParams(candidate_count=1, end_turn_base_score=0.0)
+    state.players[1].resources = {ResourceType.ORE: 2, ResourceType.GRAIN: 2, ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0}
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False, heuristic_params=params)
+    _ = bot.choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
+    debug = bot.get_last_decision()["player_trade_debug"]
+    assert debug["generated"] >= 1
+    assert debug["best_in_shortlist"] is True
+
+
+def test_v2_decision_payload_includes_player_trade_debug() -> None:
+    state = _state(182)
+    bot = HeuristicV2PositionalBotController(seed=1, enable_delay=False)
+    _ = bot.choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
+    payload = bot.get_last_decision()
+    assert "player_trade_debug" in payload
+    assert "generated" in payload["player_trade_debug"]

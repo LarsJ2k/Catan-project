@@ -18,7 +18,7 @@ from catan.core.models.action import (
     EndTurn,
     ProposePlayerTrade,
 )
-from catan.core.models.enums import ResourceType
+from catan.core.models.enums import ResourceType, TurnStep
 from catan.core.models.state import GameState
 from catan.core.observer import DebugObservation, Observation
 
@@ -30,10 +30,8 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
         if self._enable_delay and self._delay_seconds > 0:
             sleep(self._delay_seconds)
         state = observation.state if isinstance(observation, DebugObservation) else None
-        if len(legal_actions) <= 1:
+        if state is None and len(legal_actions) <= 1:
             only_action = legal_actions[0]
-            if state is not None and isinstance(only_action, DiscardResources):
-                only_action = self._choose_discard_action(state, only_action.player_id)
             self._last_decision = {"kind": "heuristic_v3_lookahead", "chosen_action": only_action, "top_candidates": [{"action": only_action, "action_score": 0.0, "position_score": 0.0, "lookahead_score": 0.0, "combined_score": 0.0, "summary": "forced action"}], "legal_action_count": len(legal_actions)}
             return only_action
         if state is None:
@@ -42,7 +40,19 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
                 self._last_decision["kind"] = "heuristic_v3_lookahead"
             return chosen
 
-        candidates = self._prune_candidates(state, list(legal_actions)) or list(legal_actions)
+        candidates_pool = list(legal_actions)
+        if state.turn is not None and state.turn.step == TurnStep.ACTIONS and state.player_trade is None:
+            candidates_pool.extend(self._candidate_player_trades(state, legal_actions))
+        candidates = self._prune_candidates(state, candidates_pool) or candidates_pool
+        if len(candidates) <= 1:
+            only_action = candidates[0]
+            if isinstance(only_action, DiscardResources):
+                only_action = self._choose_discard_action(state, only_action.player_id)
+            top = {"action": only_action, "action_score": 0.0, "position_score": 0.0, "lookahead_score": 0.0, "combined_score": 0.0, "summary": "forced action"}
+            if isinstance(only_action, ProposePlayerTrade):
+                top["trade_debug"] = self._score_notes.get(id(only_action), "")
+            self._last_decision = {"kind": "heuristic_v3_lookahead", "chosen_action": only_action, "top_candidates": [top], "legal_action_count": len(candidates_pool)}
+            return only_action
         discard_placeholder = next((action for action in candidates if isinstance(action, DiscardResources)), None)
         if discard_placeholder is not None:
             chosen = self._choose_discard_action(state, discard_placeholder.player_id)
@@ -92,7 +102,7 @@ class HeuristicV3LookaheadBotController(HeuristicV2PositionalBotController):
 
         chosen = best_actions[self._rng.randrange(len(best_actions))]
         details.sort(key=lambda item: item["combined_score"], reverse=True)
-        self._last_decision = {"kind": "heuristic_v3_lookahead", "chosen_action": chosen, "top_candidates": details[:3], "legal_action_count": len(legal_actions)}
+        self._last_decision = {"kind": "heuristic_v3_lookahead", "chosen_action": chosen, "top_candidates": details[:3], "legal_action_count": len(candidates_pool)}
         return chosen
 
     def _prune_candidates(self, state: GameState, actions: list[Action]) -> list[Action]:

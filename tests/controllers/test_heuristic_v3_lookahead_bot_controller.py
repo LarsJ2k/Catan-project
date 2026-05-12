@@ -5,8 +5,8 @@ from catan.controllers.heuristic_v3_lookahead_bot_controller import HeuristicV3L
 from catan.core.board_factory import build_classic_19_tile_board
 from catan.core.engine import create_initial_state, get_legal_actions
 from catan.core.models.action import BuildRoad, DiscardResources, EndTurn, ProposePlayerTrade
-from catan.core.models.enums import ResourceType
-from catan.core.models.state import InitialGameConfig
+from catan.core.models.enums import ResourceType, TurnStep
+from catan.core.models.state import InitialGameConfig, TurnState
 from catan.core.observer import DebugObservation
 from catan.runners.game_setup import ControllerType
 
@@ -165,3 +165,12 @@ def test_v3_honors_turn_delay_setting(monkeypatch) -> None:
     HeuristicV3LookaheadBotController(seed=1, delay_seconds=0.35, enable_delay=True).choose_action(DebugObservation(state=state), legal_actions)
 
     assert calls == [0.35]
+
+def test_v3_generates_trade_candidates_from_actions_turn() -> None:
+    state = _state()
+    state.players[1].resources = {ResourceType.BRICK: 1, ResourceType.LUMBER: 0, ResourceType.WOOL: 0, ResourceType.GRAIN: 2, ResourceType.ORE: 2}
+    state.players[2].resources[ResourceType.ORE] = 1
+    bot = HeuristicV3LookaheadBotController(seed=1, enable_delay=False)
+    state.turn = TurnState(current_player=1, step=TurnStep.ACTIONS)
+    _ = bot.choose_action(DebugObservation(state=state), [EndTurn(player_id=1)])
+    assert bot._last_decision["legal_action_count"] > 1
