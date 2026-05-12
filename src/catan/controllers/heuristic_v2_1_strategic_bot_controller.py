@@ -5,6 +5,7 @@ from typing import Any, Sequence
 from catan.controllers.heuristic_strategic_helpers import classify_game_phase, detect_bottlenecks, estimate_distances, forced_candidates
 from catan.controllers.heuristic_v2_positional_bot_controller import HeuristicV2PositionalBotController
 from catan.core.models.action import Action
+from catan.core.models.enums import TurnStep
 from catan.core.observer import DebugObservation, Observation
 
 
@@ -13,8 +14,11 @@ class HeuristicV2_1StrategicBotController(HeuristicV2PositionalBotController):
         state = observation.state if isinstance(observation, DebugObservation) else None
         if state is None:
             return super().choose_action(observation, legal_actions)
-        scored = [(a, self._score_action_for_v2_shortlist(a, state, legal_actions)) for a in legal_actions]
-        candidates = forced_candidates(self, state, legal_actions, scored, max(1, int(self._params.candidate_count)))
+        candidates_pool = list(legal_actions)
+        if state.turn is not None and state.turn.step == TurnStep.ACTIONS and state.player_trade is None:
+            candidates_pool.extend(self._candidate_player_trades(state, legal_actions))
+        scored = [(a, self._score_action_for_v2_shortlist(a, state, candidates_pool)) for a in candidates_pool]
+        candidates = forced_candidates(self, state, candidates_pool, scored, max(1, int(self._params.candidate_count)))
         normalized = self._normalize_action_scores([(a, s) for a, s in scored if a in candidates])
         eval_player = state.turn.current_player if state.turn else candidates[0].player_id
         current_eval = self._evaluator.evaluate(state, eval_player, self._params)
@@ -46,5 +50,5 @@ class HeuristicV2_1StrategicBotController(HeuristicV2PositionalBotController):
                 best_actions.append(action)
         chosen = best_actions[self._rng.randrange(len(best_actions))]
         details.sort(key=lambda d: d["combined_score"], reverse=True)
-        self._last_decision = {"kind": "heuristic_v2_1_strategic", "chosen_action": chosen, "top_candidates": details[:3], "legal_action_count": len(legal_actions)}
+        self._last_decision = {"kind": "heuristic_v2_1_strategic", "chosen_action": chosen, "top_candidates": details[:3], "legal_action_count": len(candidates_pool)}
         return chosen
